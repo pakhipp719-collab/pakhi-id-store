@@ -1,53 +1,696 @@
 require('dotenv').config();
-const express=require('express'),session=require('express-session'),SQLiteStore=require('connect-sqlite3')(session),Database=require('better-sqlite3'),bcrypt=require('bcryptjs'),helmet=require('helmet'),QRCode=require('qrcode'),crypto=require('crypto'),path=require('path'),fs=require('fs');
-const dataDir=process.env.DATA_DIR||path.join(__dirname,'data');
-fs.mkdirSync(dataDir,{recursive:true});
-if(process.env.NODE_ENV==='production'){
-  const required=['SESSION_SECRET','ADMIN_USERNAME','ADMIN_PASSWORD_HASH','CREDENTIAL_ENCRYPTION_KEY'];
-  const missing=required.filter(k=>!process.env[k]);
-  if(missing.length) throw new Error('Missing required production environment variables: '+missing.join(', '));
-  if(process.env.SESSION_SECRET.length<32) throw new Error('SESSION_SECRET must be at least 32 characters.');
-  if(!/^[0-9a-f]{64}$/i.test(process.env.CREDENTIAL_ENCRYPTION_KEY)) throw new Error('CREDENTIAL_ENCRYPTION_KEY must be 64 hex characters.');
-}
-const app=express(),db=new Database(path.join(dataDir,'store.db')); db.pragma('journal_mode = WAL');
-db.exec(`CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);CREATE TABLE IF NOT EXISTS news(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,body TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS inventory(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,password_enc TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'available',order_id INTEGER,created_at TEXT DEFAULT CURRENT_TIMESTAMP);CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY AUTOINCREMENT,utr TEXT NOT NULL,qty INTEGER NOT NULL,amount INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'pending',created_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
-const put=db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value'); const defaults={price_per_id:'120',upi_id:'',upi_name:'PAKHI ID Store',announcement:'Welcome to PAKHI ID Store'}; for(const [k,v] of Object.entries(defaults))if(!db.prepare('SELECT value FROM settings WHERE key=?').get(k))put.run(k,v);
-const settings=()=>Object.fromEntries(db.prepare('SELECT key,value FROM settings').all().map(x=>[x.key,x.value]));
-function key(){let k=process.env.CREDENTIAL_ENCRYPTION_KEY||'';if(!/^[0-9a-f]{64}$/i.test(k))throw Error('Configure CREDENTIAL_ENCRYPTION_KEY in .env');return Buffer.from(k,'hex')}
-function enc(s){const iv=crypto.randomBytes(12),c=crypto.createCipheriv('aes-256-gcm',key(),iv),d=Buffer.concat([c.update(s,'utf8'),c.final()]);return [iv.toString('hex'),c.getAuthTag().toString('hex'),d.toString('hex')].join(':')}
-function dec(s){const [iv,tag,data]=s.split(':'),d=crypto.createDecipheriv('aes-256-gcm',key(),Buffer.from(iv,'hex'));d.setAuthTag(Buffer.from(tag,'hex'));return Buffer.concat([d.update(Buffer.from(data,'hex')),d.final()]).toString()}
-app.set('view engine','ejs');app.set('views',path.join(__dirname,'views'));app.use(helmet({contentSecurityPolicy:false}));app.use(express.urlencoded({extended:false,limit:'20kb'}));app.use(express.static(path.join(__dirname,'public')));app.use(session({store:new SQLiteStore({db:'sessions.db',dir:dataDir}),secret:process.env.SESSION_SECRET||'CHANGE_ME_BEFORE_DEPLOYMENT',resave:false,saveUninitialized:false,cookie:{httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',maxAge:7200000}}));
-app.use((req,res,next)=>{if(!req.session.csrf)req.session.csrf=crypto.randomBytes(24).toString('hex');res.locals.csrf=req.session.csrf;res.locals.admin=!!req.session.admin;res.locals.siteName=settings().site_name||process.env.SITE_NAME||'PAKHI ID Store';next()});
-const csrf=(req,res,next)=>req.body.csrf&&req.body.csrf===req.session.csrf?next():res.status(403).send('Invalid form token; refresh page.');
-app.get('/health',(req,res)=>res.status(200).json({status:'ok'}));const admin=(req,res,next)=>req.session.admin?next():res.redirect('/admin/login');const qtys=[1,2,5,10,15,20];
-app.get('/',(req,res)=>{const s=settings(),news=db.prepare('SELECT * FROM news ORDER BY id DESC LIMIT 12').all(),stock=db.prepare("SELECT COUNT(*) n FROM inventory WHERE status='available'").get().n;res.render('home',{s,news,stock,packs:qtys.map(q=>({qty:q,amount:q*(+s.price_per_id||0)}))})});
-app.get('/payment-qr/:qty',async(req,res)=>{const qty=+req.params.qty,s=settings();if(!qtys.includes(qty))return res.status(400).json({error:'Invalid quantity'});if(!/^[\w.\-]{2,256}@[A-Za-z]{2,32}$/.test(s.upi_id||''))return res.status(400).json({error:'Admin has not configured a valid UPI ID'});const amount=(qty*(+s.price_per_id||0)).toFixed(2),payload=`upi://pay?pa=${encodeURIComponent(s.upi_id)}&pn=${encodeURIComponent(s.upi_name||'PAKHI ID Store')}&am=${amount}&cu=INR&tn=${encodeURIComponent(qty+' ID order')}`;res.json({qr:await QRCode.toDataURL(payload,{width:320,margin:2}),amount,qty,upi:s.upi_id,payee:s.upi_name})});
-app.post('/order',csrf,(req,res)=>{const qty=+req.body.qty,utr=String(req.body.utr||'').trim(),s=settings();if(!qtys.includes(qty)||!/^[A-Za-z0-9-]{6,32}$/.test(utr))return res.status(400).send('Invalid quantity or UTR/RRN.');const amount=qty*(+s.price_per_id||0),stock=db.prepare("SELECT COUNT(*) n FROM inventory WHERE status='available'").get().n;
-if(db.prepare('SELECT id FROM orders WHERE lower(utr)=lower(?)').get(utr))return res.status(409).send('This UTR/RRN has already been submitted.');
-if(qty>stock)return res.status(400).send('Not enough stock.');
-const o=db.prepare('INSERT INTO orders(utr,qty,amount,status) VALUES(?,?,?,?)').run(utr,qty,amount,'pending');res.redirect('/order-status/'+o.lastInsertRowid)});
-app.get('/order-status/:id',(req,res)=>{const order=db.prepare('SELECT id,qty,amount,status,created_at FROM orders WHERE id=?').get(+req.params.id);if(!order)return res.status(404).send('Order not found');res.render('order-status',{order})});
-const findAttempts=new Map();
-app.post('/find-id',csrf,(req,res)=>{
- const now=Date.now(),ip=req.ip,entry=findAttempts.get(ip)||{count:0,reset:now+15*60*1000};
- if(now>entry.reset){entry.count=0;entry.reset=now+15*60*1000;}
- entry.count++;findAttempts.set(ip,entry);
- if(entry.count>10)return res.status(429).json({error:'Bahut zyada attempts hue. 15 minute baad phir koshish karein.'});
- const utr=String(req.body.utr||'').trim();
- if(!/^[A-Za-z0-9-]{6,32}$/.test(utr))return res.status(400).json({error:'Sahi UTR / RRN number enter karein.'});
- const order=db.prepare("SELECT id,status FROM orders WHERE lower(utr)=lower(?)").get(utr);
- if(!order)return res.status(404).json({error:'Is UTR/RRN se order nahi mila. Number check karein.'});
- if(order.status!=='approved')return res.status(403).json({error:order.status==='pending'?'Payment abhi verify nahi hua hai. Approval ke baad dobara check karein.':'Yeh order approve nahi hua hai. Admin se sampark karein.'});
- try{
-  const credentials=db.prepare('SELECT username,password_enc FROM inventory WHERE order_id=? ORDER BY id').all(order.id).map(x=>({username:x.username,password:dec(x.password_enc)}));
-  if(!credentials.length)return res.status(404).json({error:'Is order ke liye ID details nahi mili. Admin se sampark karein.'});
-  res.set('Cache-Control','no-store').json({credentials});
- }catch(e){res.status(500).json({error:'ID details abhi load nahi ho paayi.'});}
+const express = require('express');
+const cookieParser = require('cookie-parser');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const { Pool } = require('pg');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const QRCode = require('qrcode');
+
+const app = express();
+app.set('trust proxy', 1);
+const ADMIN_COOKIE = process.env.NODE_ENV === 'production' ? '__Host-nishad_admin' : 'nishad_admin';
+const CF_GATE_COOKIE = process.env.NODE_ENV === 'production' ? '__Host-nishad_cf_verified' : 'nishad_cf_verified';
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 1 * 1024 * 1024, files: 2 },
+  fileFilter: (req, file, cb) => {
+    const allowed = new Set(['image/png','image/jpeg','image/webp']);
+    cb(null, allowed.has(String(file.mimetype || '').toLowerCase()));
+  }
 });
-app.get('/admin/login',(req,res)=>res.render('login',{error:''}));app.post('/admin/login',csrf,async(req,res)=>{const hash=process.env.ADMIN_PASSWORD_HASH||'';if(req.body.username===(process.env.ADMIN_USERNAME||'admin')&&hash&&await bcrypt.compare(String(req.body.password||''),hash)){req.session.regenerate(e=>{if(e)return res.status(500).send('Session error');req.session.admin=true;req.session.csrf=crypto.randomBytes(24).toString('hex');res.redirect('/admin')})}else res.status(401).render('login',{error:'Login details galat hain.'})});app.post('/admin/logout',csrf,(req,res)=>req.session.destroy(()=>res.redirect('/')));
-app.get('/admin',admin,(req,res)=>res.render('admin',{s:settings(),news:db.prepare('SELECT * FROM news ORDER BY id DESC').all(),inventory:db.prepare('SELECT id,username,status,order_id FROM inventory ORDER BY id DESC LIMIT 100').all(),orders:db.prepare('SELECT * FROM orders ORDER BY id DESC LIMIT 100').all(),available:db.prepare("SELECT COUNT(*) n FROM inventory WHERE status='available'").get().n,message:req.query.msg||''}));
-app.post('/admin/settings',admin,csrf,(req,res)=>{const price=+req.body.price_per_id,upi=String(req.body.upi_id||'').trim();if(!Number.isFinite(price)||price<1||price>100000)return res.status(400).send('Rate 1–100000 ke beech hona chahiye.');if(upi&&!/^[\w.\-]{2,256}@[A-Za-z]{2,32}$/.test(upi))return res.status(400).send('UPI ID format galat hai.');for(const [k,v] of Object.entries({price_per_id:String(price),upi_id:upi,upi_name:String(req.body.upi_name||'PAKHI ID Store').slice(0,100),announcement:String(req.body.announcement||'').slice(0,240)}))put.run(k,v);res.redirect('/admin?msg=Settings+saved')});
-app.post('/admin/news',admin,csrf,(req,res)=>{const t=String(req.body.title||'').trim().slice(0,120),b=String(req.body.body||'').trim().slice(0,3000);if(!t||!b)return res.status(400).send('Title aur news required hain.');db.prepare('INSERT INTO news(title,body) VALUES(?,?)').run(t,b);res.redirect('/admin?msg=News+published')});app.post('/admin/news/:id/delete',admin,csrf,(req,res)=>{db.prepare('DELETE FROM news WHERE id=?').run(+req.params.id);res.redirect('/admin?msg=News+deleted')});
-app.post('/admin/inventory',admin,csrf,(req,res)=>{const u=String(req.body.username||'').trim().slice(0,200),p=String(req.body.password||'');if(!u||!p||p.length>500)return res.status(400).send('ID aur password required hain.');db.prepare('INSERT INTO inventory(username,password_enc,status) VALUES(?,?,?)').run(u,enc(p),'available');res.redirect('/admin?msg=Credential+saved')});app.post('/admin/inventory/:id/delete',admin,csrf,(req,res)=>{db.prepare("DELETE FROM inventory WHERE id=? AND status='available'").run(+req.params.id);res.redirect('/admin?msg=Inventory+removed')});
-app.post('/admin/orders/:id/approve',admin,csrf,(req,res)=>{const o=db.prepare("SELECT * FROM orders WHERE id=? AND status='pending'").get(+req.params.id);if(!o)return res.status(400).send('Order pending nahi hai.');const items=db.prepare("SELECT id FROM inventory WHERE status='available' ORDER BY id LIMIT ?").all(o.qty);if(items.length<o.qty)return res.status(400).send('Stock kam hai.');db.transaction(()=>{for(const i of items)db.prepare("UPDATE inventory SET status='sold',order_id=? WHERE id=?").run(o.id,i.id);db.prepare("UPDATE orders SET status='approved' WHERE id=?").run(o.id)})();res.redirect('/admin?msg=Order+approved')});app.post('/admin/orders/:id/reject',admin,csrf,(req,res)=>{db.prepare("UPDATE orders SET status='rejected' WHERE id=? AND status='pending'").run(+req.params.id);res.redirect('/admin?msg=Order+rejected')});app.get('/admin/orders/:id/credentials',admin,(req,res)=>{const o=db.prepare("SELECT * FROM orders WHERE id=? AND status='approved'").get(+req.params.id);if(!o)return res.status(404).send('Approved order not found');res.type('text/plain').send(db.prepare('SELECT username,password_enc FROM inventory WHERE order_id=?').all(o.id).map((x,i)=>`ID ${i+1}: ${x.username}\nPassword: ${dec(x.password_enc)}`).join('\n\n'))});
-app.use((req,res)=>res.status(404).send('Page not found'));const port=+process.env.PORT||3000;app.listen(port,()=>console.log(`PAKHI ID Store running on http://localhost:${port}`));
+
+// Security: inventory credentials are encrypted at rest and never returned
+// as a full inventory dump to the browser. Keep INVENTORY_ENCRYPTION_KEY
+// stable in Render Environment Variables; it should be a long random secret.
+const rawInventoryKey = String(process.env.INVENTORY_ENCRYPTION_KEY || '');
+if (process.env.NODE_ENV === 'production' && rawInventoryKey.length < 32) {
+  console.error('INVENTORY_ENCRYPTION_KEY must be set to a random secret of at least 32 characters in production.');
+  process.exit(1);
+}
+const INVENTORY_KEY = crypto.createHash('sha256')
+  .update(rawInventoryKey || String(process.env.JWT_SECRET || ''))
+  .digest();
+if (process.env.NODE_ENV === 'production') {
+  const jwtSecret=String(process.env.JWT_SECRET||'');
+  const adminUser=String(process.env.ADMIN_USERNAME||'');
+  const adminPass=String(process.env.ADMIN_PASSWORD||'');
+  if (jwtSecret.length < 32 || adminUser.length < 3 || adminPass.length < 12) {
+    console.error('Production security configuration is incomplete: JWT_SECRET >=32 chars, ADMIN_USERNAME >=3 chars, ADMIN_PASSWORD >=12 chars required.');
+    process.exit(1);
+  }
+}
+function encryptSecret(value){
+  if(value == null || value === '') return value == null ? null : '';
+  const iv=crypto.randomBytes(12);
+  const cipher=crypto.createCipheriv('aes-256-gcm', INVENTORY_KEY, iv);
+  const enc=Buffer.concat([cipher.update(String(value),'utf8'),cipher.final()]);
+  return 'enc:v1:'+iv.toString('base64url')+':'+cipher.getAuthTag().toString('base64url')+':'+enc.toString('base64url');
+}
+function decryptSecret(value){
+  if(value == null || value === '') return value || '';
+  if(!String(value).startsWith('enc:v1:')) return String(value); // legacy row; migration upgrades it
+  const [,v,iv64,tag64,data64]=String(value).split(':');
+  try{
+    const decipher=crypto.createDecipheriv('aes-256-gcm', INVENTORY_KEY, Buffer.from(iv64,'base64url'));
+    decipher.setAuthTag(Buffer.from(tag64,'base64url'));
+    return Buffer.concat([decipher.update(Buffer.from(data64,'base64url')),decipher.final()]).toString('utf8');
+  }catch{return ''}
+}
+function maskSecret(value){
+  const s=String(value||'');
+  if(!s) return '';
+  return s.length<=3 ? '•••' : '••••••••'+s.slice(-3);
+}
+
+// Basic security headers (no extra package required).
+app.disable('x-powered-by');
+app.use((req,res,next)=>{
+  res.set({
+    'X-Content-Type-Options':'nosniff',
+    'X-Frame-Options':'DENY',
+    'Referrer-Policy':'strict-origin-when-cross-origin',
+    'Permissions-Policy':'camera=(), microphone=(), geolocation=()',
+    'Content-Security-Policy':"default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; frame-src 'self' https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com;"
+  });
+  if (process.env.NODE_ENV === 'production') res.set('Strict-Transport-Security','max-age=31536000; includeSubDomains');
+  next();
+});
+const PORT = process.env.PORT || 3000;
+if (!process.env.DATABASE_URL) {
+  console.error('DATABASE_URL is not configured. Add the Render PostgreSQL connection string in Environment Variables.');
+  process.exit(1);
+}
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
+  connectionTimeoutMillis: 10000
+});
+
+const MOBILE_APP_TOKEN = String(process.env.MOBILE_APP_TOKEN || '').trim();
+if (process.env.NODE_ENV === 'production' && MOBILE_APP_TOKEN.length < 32) {
+  console.error('MOBILE_APP_TOKEN must be set to a random secret of at least 32 characters in production.');
+  process.exit(1);
+}
+function merchantAppAuth(req,res,next){
+  const supplied=String(req.get('X-Mobile-App-Token') || req.body?.token || '').trim();
+  if(!MOBILE_APP_TOKEN || !supplied) return res.status(401).json({error:'Merchant app unauthorized'});
+  const a=Buffer.from(supplied,'utf8');
+  const b=Buffer.from(MOBILE_APP_TOKEN,'utf8');
+  if(a.length!==b.length || !crypto.timingSafeEqual(a,b)) return res.status(401).json({error:'Merchant app unauthorized'});
+  next();
+}
+
+app.use(express.json({ limit: '256kb', strict: true }));
+app.use(express.urlencoded({ extended: true, limit: '128kb', parameterLimit: 100 }));
+app.use(cookieParser());
+app.use((req,res,next)=>{ if(req.path.startsWith('/api/')) res.set('Cache-Control','no-store'); next(); });
+
+// Serve the storefront with the Turnstile Site Key embedded for the first-load gate.
+app.get('/', (req,res)=>{
+  try {
+    const file=fs.readFileSync(path.join(__dirname,'public','index.html'),'utf8');
+    const siteKey=String(process.env.CLOUDFLARE_TURNSTILE_SITE_KEY||'').trim().replace(/&/g,'&amp;').replace(/\"/g,'&quot;').replace(/</g,'&lt;');
+    res.set('Cache-Control','no-store');
+    res.type('html').send(file.replace('__CF_TURNSTILE_SITE_KEY__',siteKey));
+  } catch { res.status(500).send('Storefront unavailable'); }
+});
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/health', (req,res)=>res.json({ok:true,service:'nishad-brand-store'}));
+
+const loginAttempts=new Map();
+const loginIpAttempts=new Map();
+const apiHits=new Map();
+const claimHits=new Map();
+const adminMutationHits=new Map();
+function clientIp(req){ return String(req.ip||'unknown').slice(0,100); }
+function rateLimit(map,windowMs,max,code='Too many requests. Please try again later.'){
+  return (req,res,next)=>{
+    const key=clientIp(req); const now=Date.now(); const a=map.get(key);
+    if(!a || now-a.first>=windowMs){ map.set(key,{first:now,count:1}); return next(); }
+    a.count++;
+    if(a.count>max) return res.status(429).json({error:code});
+    next();
+  };
+}
+function loginRateLimit(req,res,next){
+  const ip=clientIp(req);
+  const username=String(req.body?.username||'').slice(0,120).toLowerCase();
+  const key=ip+'|'+username;
+  const now=Date.now();
+  const ipA=loginIpAttempts.get(ip);
+  if(ipA && now-ipA.first<10*60*1000 && ipA.count>=20) return res.status(429).json({error:'Too many login attempts. Try again later.'});
+  const a=loginAttempts.get(key);
+  if(a && now-a.first<10*60*1000 && a.count>=8) return res.status(429).json({error:'Too many login attempts. Try again later.'});
+  req._loginKey=key; req._loginIp=ip; next();
+}
+function recordLoginFailure(key,ip){
+  const now=Date.now(); const a=loginAttempts.get(key);
+  if(!a || now-a.first>=10*60*1000) loginAttempts.set(key,{first:now,count:1});
+  else a.count++;
+  if(ip){ const b=loginIpAttempts.get(ip); if(!b || now-b.first>=10*60*1000) loginIpAttempts.set(ip,{first:now,count:1}); else b.count++; }
+}
+function clearLoginFailures(key,ip){loginAttempts.delete(key); if(ip) loginIpAttempts.delete(ip);}
+setInterval(()=>{ const now=Date.now(); for(const [k,v] of loginAttempts) if(now-v.first>10*60*1000) loginAttempts.delete(k); for(const [k,v] of loginIpAttempts) if(now-v.first>10*60*1000) loginIpAttempts.delete(k); for(const [k,v] of apiHits) if(now-v.first>60*1000) apiHits.delete(k); for(const [k,v] of claimHits) if(now-v.first>10*60*1000) claimHits.delete(k); for(const [k,v] of adminMutationHits) if(now-v.first>60*1000) adminMutationHits.delete(k); },5*60*1000).unref();
+
+
+function siteGate(req,res,next){
+  try {
+    const token=String(req.cookies[CF_GATE_COOKIE]||'');
+    if(!token) return res.status(403).json({error:'Cloudflare verification required'});
+    const data=jwt.verify(token, process.env.JWT_SECRET);
+    if(data?.type!=='cloudflare_gate') throw new Error('Invalid gate');
+    next();
+  } catch { res.status(403).json({error:'Cloudflare verification required'}); }
+}
+function signSiteGateToken(){ return jwt.sign({type:'cloudflare_gate',jti:crypto.randomBytes(16).toString('hex')}, process.env.JWT_SECRET, {expiresIn:'12h'}); }
+
+function sameOrigin(req){
+  const origin=String(req.get('origin')||'').trim();
+  const referer=String(req.get('referer')||'').trim();
+  const host=String(req.get('host')||'').toLowerCase();
+  if(origin){ try { return new URL(origin).host.toLowerCase()===host; } catch { return false; } }
+  if(referer){ try { return new URL(referer).host.toLowerCase()===host; } catch { return false; } }
+  return false;
+}
+function adminMutationGuard(req,res,next){
+  if(!sameOrigin(req)) return res.status(403).json({error:'Invalid request origin'});
+  const ip=clientIp(req), now=Date.now(), a=adminMutationHits.get(ip);
+  if(!a || now-a.first>=60*1000){ adminMutationHits.set(ip,{first:now,count:1}); return next(); }
+  a.count++;
+  if(a.count>60) return res.status(429).json({error:'Too many admin requests. Please try again later.'});
+  next();
+}
+
+function auth(req,res,next){
+  try {
+    const token = req.cookies[ADMIN_COOKIE];
+    if(!token) return res.status(401).json({error:'Unauthorized'});
+    req.admin = jwt.verify(token, process.env.JWT_SECRET);
+    if(req.admin?.role!=='admin') throw new Error('Invalid role');
+    next();
+  } catch { res.status(401).json({error:'Unauthorized'}); }
+}
+function money(n){ return Math.round(Number(n)*100); }
+function signToken(){ return jwt.sign({role:'admin',jti:crypto.randomBytes(16).toString('hex')}, process.env.JWT_SECRET, {expiresIn:'2h'}); }
+async function q(text, params=[]){ return pool.query(text, params); }
+async function migrateOrdersSchema(){
+  // Backward-compatible migration for existing databases created before qr_code_id was added.
+  // CREATE TABLE IF NOT EXISTS does not modify an already-existing orders table.
+  await q('ALTER TABLE orders ADD COLUMN IF NOT EXISTS qr_code_id TEXT');
+  await q('ALTER TABLE orders ADD COLUMN IF NOT EXISTS claim_used_at TIMESTAMPTZ');
+  await q('ALTER TABLE orders ADD COLUMN IF NOT EXISTS claim_requested_at TIMESTAMPTZ');
+  await q("ALTER TABLE orders ADD COLUMN IF NOT EXISTS claim_status TEXT");
+  await q('ALTER TABLE orders ADD COLUMN IF NOT EXISTS sms_verified_at TIMESTAMPTZ');
+  await q('ALTER TABLE orders ADD COLUMN IF NOT EXISTS sms_amount_paise INTEGER');
+  await q('ALTER TABLE orders ADD COLUMN IF NOT EXISTS sms_match_source TEXT');
+  await q('ALTER TABLE orders ADD COLUMN IF NOT EXISTS utr_submitted_at TIMESTAMPTZ');
+  await q(`CREATE TABLE IF NOT EXISTS merchant_sms_verifications (
+    id BIGSERIAL PRIMARY KEY,
+    utr TEXT NOT NULL UNIQUE,
+    amount_paise INTEGER NOT NULL,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    matched_order_id TEXT,
+    match_status TEXT NOT NULL DEFAULT 'pending'
+  )`);
+  await q('CREATE INDEX IF NOT EXISTS merchant_sms_verifications_order_idx ON merchant_sms_verifications(matched_order_id)');
+  try {
+    await q('CREATE UNIQUE INDEX IF NOT EXISTS orders_qr_code_id_unique ON orders(qr_code_id) WHERE qr_code_id IS NOT NULL');
+  } catch (e) {
+    console.warn('QR code index migration skipped:', e.message);
+  }
+}
+
+async function migrateInventoryEncryption(){
+  // Upgrade legacy plaintext inventory rows once. Only the server can decrypt them.
+  const r=await q("SELECT id,login_id,login_password,extra_data FROM inventory WHERE login_id NOT LIKE 'enc:v1:%' OR (login_password IS NOT NULL AND login_password NOT LIKE 'enc:v1:%') OR (extra_data IS NOT NULL AND extra_data NOT LIKE 'enc:v1:%') LIMIT 1000");
+  for(const row of r.rows){
+    await q('UPDATE inventory SET login_id=$1,login_password=$2,extra_data=$3 WHERE id=$4',[encryptSecret(row.login_id),encryptSecret(row.login_password),encryptSecret(row.extra_data),row.id]);
+  }
+  if(r.rows.length) console.log(`Encrypted ${r.rows.length} legacy inventory records.`);
+}
+
+async function normalizeStorePrice(){ try {
+  const current=await setting('price_per_id');
+  if(!current || !Number.isFinite(Number(current)) || Number(current)<=0){
+    await q("INSERT INTO settings(key,value) VALUES ('price_per_id','1') ON CONFLICT(key) DO NOTHING");
+  }
+  await q("INSERT INTO settings(key,value) VALUES ('bonus_offer_enabled','true') ON CONFLICT(key) DO NOTHING");
+  await q("INSERT INTO settings(key,value) VALUES ('bonus_purchase_qty','10') ON CONFLICT(key) DO NOTHING");
+ } catch(e) { console.warn('Price/bonus initialization skipped:', e.message); } }
+async function setting(key){ const r=await q('SELECT value FROM settings WHERE key=$1',[key]); return r.rows[0]?.value || ''; }
+async function settings(){ const r=await q('SELECT key,value FROM settings'); return Object.fromEntries(r.rows.map(x=>[x.key,x.value])); }
+function publicSettings(s, stock=0){
+  // Price per ID is controlled from Admin Panel → Store Settings.
+  // Fall back to ₹1 only when no valid price has been saved yet.
+  const savedPrice = Number(s.price_per_id);
+  const basePrice = Number.isFinite(savedPrice) && savedPrice > 0 ? savedPrice : 1;
+  const packages = [1,2,5,10,15,20].map(qty=>{
+    const originalPrice = Math.round(basePrice * qty * 100) / 100;
+    const rawDiscount = Number(s['package_discount_'+qty] || 0);
+    const discount = Number.isFinite(rawDiscount) && rawDiscount > 0 ? Math.min(originalPrice, Math.round(rawDiscount*100)/100) : 0;
+    return {
+      qty,
+      price: Math.max(0, Math.round((originalPrice - discount) * 100) / 100),
+      originalPrice,
+      discount,
+      available: stock >= qty
+    };
+  });
+  const bonusPurchaseQty = Math.max(1, Math.min(100000, parseInt(s.bonus_purchase_qty,10) || 10));
+  return {siteName:s.site_name||'NISHAD BRAND', whatsapp:s.whatsapp_number||'', logo:s.logo_data||'/logo.png', qr:s.qr_data||'/payment-qr.png', news:s.news||'', pricePerId:basePrice, packages, stock, turnstileSiteKey:String(process.env.CLOUDFLARE_TURNSTILE_SITE_KEY||'').trim(), bonusOfferEnabled:s.bonus_offer_enabled!=='false', bonusPurchaseQty};
+}
+
+app.post('/api/site-verify', rateLimit(apiHits,60*1000,30), async (req,res)=>{
+  try {
+    const secret=String(process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY||'').trim();
+    const token=String(req.body?.token||'').trim();
+    if(!secret) return res.status(503).json({error:'Cloudflare protection is not configured'});
+    if(!token) return res.status(400).json({error:'Cloudflare verification required'});
+    const body=new URLSearchParams({secret,response:token});
+    const ip=clientIp(req); if(ip && ip!=='unknown') body.set('remoteip',ip);
+    const r=await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+    const cf=await r.json();
+    const host=String(cf?.hostname||'').toLowerCase();
+    if(!cf?.success || (host && host!=='nishadbrand.online' && host!=='www.nishadbrand.online')) return res.status(403).json({error:'Cloudflare verification failed'});
+    res.cookie(CF_GATE_COOKIE,signSiteGateToken(),{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'lax',path:'/',maxAge:12*60*60*1000});
+    res.json({ok:true});
+  } catch(e){ console.error('Cloudflare site verification error:',e.message); res.status(502).json({error:'Cloudflare verification failed'}); }
+});
+
+app.get('/api/config', async (req,res)=>{
+  res.set('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma','no-cache');
+  try {
+    const s=await settings();
+    const stock=await q("SELECT COUNT(*)::int AS count FROM inventory WHERE status='available'");
+    res.json(publicSettings(s, stock.rows[0].count));
+  } catch(e){ console.error('Config error:',e); res.status(500).json({error:'Server error'}); }
+});
+
+app.post('/api/admin/login', loginRateLimit, async (req,res)=>{
+  const {username,password}=req.body||{};
+  const okUser=username===process.env.ADMIN_USERNAME;
+  const configured=process.env.ADMIN_PASSWORD||'';
+  const okPass=configured.startsWith('$2') ? await bcrypt.compare(password||'',configured) : password===configured;
+  if(!okUser || !okPass){ recordLoginFailure(req._loginKey,req._loginIp); return res.status(401).json({error:'Invalid login'}); }
+  clearLoginFailures(req._loginKey,req._loginIp);
+  res.cookie(ADMIN_COOKIE,signToken(),{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'strict',path:'/',maxAge:2*60*60*1000});
+  res.json({ok:true});
+});
+app.post('/api/admin/logout',adminMutationGuard,(req,res)=>{res.clearCookie(ADMIN_COOKIE,{path:'/'});res.json({ok:true});});
+app.get('/api/admin/me',auth,(req,res)=>res.json({ok:true}));
+
+app.get('/api/admin/dashboard',auth,async(req,res)=>{
+  res.set('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');
+  const s=await settings();
+  const stock=await q("SELECT COUNT(*)::int AS count FROM inventory WHERE status='available'");
+  const sold=await q("SELECT COUNT(*)::int AS count FROM inventory WHERE status='sold'");
+  const orders=await q("SELECT order_id,package_qty,amount_paise,status,payment_id,utr,customer_name,customer_phone,created_at,fulfilled_at,claim_used_at,claim_requested_at,claim_status FROM orders ORDER BY created_at DESC LIMIT 100");
+  const inv=await q("SELECT id,status,sold_order_id,created_at FROM inventory ORDER BY id DESC LIMIT 500");
+  const today=await q(`SELECT
+    (SELECT COUNT(*)::int FROM inventory WHERE (created_at AT TIME ZONE 'Asia/Kolkata')::date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date AND status='sold') AS today_sold_ids,
+    (SELECT COUNT(*)::int FROM inventory WHERE (created_at AT TIME ZONE 'Asia/Kolkata')::date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date) AS today_ids_added,
+    (SELECT COUNT(*)::int FROM orders WHERE (created_at AT TIME ZONE 'Asia/Kolkata')::date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date AND status='rejected') AS today_rejected,
+    (SELECT COUNT(*)::int FROM orders WHERE (fulfilled_at AT TIME ZONE 'Asia/Kolkata')::date=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date AND status IN ('approved','paid')) AS today_approved`);
+  res.json({settings:s,stock:stock.rows[0].count,sold:sold.rows[0].count,orders:orders.rows,inventory:inv.rows,today:today.rows[0]});
+});
+
+app.post('/api/admin/settings',auth,adminMutationGuard,async(req,res)=>{
+  const allowed=['site_name','whatsapp_number','price_per_id','upi_vpa','upi_name','news','bonus_offer_enabled','bonus_purchase_qty',
+    'package_discount_1','package_discount_2','package_discount_5','package_discount_10','package_discount_15','package_discount_20'];
+  if(req.body.bonus_purchase_qty!==undefined){
+    const qty=Number(req.body.bonus_purchase_qty);
+    if(!Number.isInteger(qty) || qty<1 || qty>100000){
+      return res.status(400).json({error:'Invalid bonus purchase quantity'});
+    }
+    req.body.bonus_purchase_qty=String(qty);
+  }
+  if(req.body.price_per_id!==undefined){
+    const price=Number(req.body.price_per_id);
+    if(!Number.isFinite(price) || price<=0 || price>100000){
+      return res.status(400).json({error:'Invalid price per ID'});
+    }
+    req.body.price_per_id=price.toFixed(2).replace(/\.00$/,'');
+  }
+  for(const qty of [1,2,5,10,15,20]){
+    const key='package_discount_'+qty;
+    if(req.body[key]!==undefined){
+      const discount=Number(req.body[key]);
+      if(!Number.isFinite(discount) || discount<0 || discount>100000){
+        return res.status(400).json({error:'Invalid discount for '+qty+' ID package'});
+      }
+      req.body[key]=discount.toFixed(2).replace(/\.00$/,'');
+    }
+  }
+  for(const key of allowed){ if(req.body[key]!==undefined) await q('INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value',[key,String(req.body[key])]); }
+  const fresh=await settings();
+  res.json({ok:true,pricePerId:Number(fresh.price_per_id)||1});
+});
+app.post('/api/admin/orders/:orderId/approve',auth,adminMutationGuard,async(req,res)=>{
+  try{
+    const ord=await q("SELECT * FROM orders WHERE order_id=$1",[req.params.orderId]);
+    if(!ord.rows[0]) return res.status(404).json({error:'Order not found'});
+    if(ord.rows[0].status==='approved' || ord.rows[0].status==='paid') return res.json({ok:true,already:true});
+    if(ord.rows[0].status!=='payment_received') return res.status(400).json({error:'Payment is not pending verification'});
+    if(!ord.rows[0].utr) return res.status(400).json({error:'UTR / Transaction ID is required before approval'});
+    if(!ord.rows[0].sms_verified_at || Number(ord.rows[0].sms_amount_paise)!==Number(ord.rows[0].amount_paise)) return res.status(409).json({error:'Payment SMS has not been verified with the exact order amount. Manual approval is blocked.'});
+    await fulfillManual(req.params.orderId);
+    res.json({ok:true});
+  }catch(e){console.error('Approve error:',e);res.status(500).json({error:e.message||'Could not approve order'});}
+});
+app.post('/api/admin/orders/:orderId/reject',auth,adminMutationGuard,async(req,res)=>{
+  try{
+    const r=await q("UPDATE orders SET status='rejected' WHERE order_id=$1 AND status='payment_received' RETURNING order_id",[req.params.orderId]);
+    if(!r.rows[0]) return res.status(400).json({error:'Only pending payment orders can be rejected'});
+    res.json({ok:true});
+  }catch(e){res.status(500).json({error:'Could not reject order'});}
+});
+
+app.post('/api/admin/assets',auth,adminMutationGuard,upload.fields([{name:'logo',maxCount:1},{name:'qr',maxCount:1}]),async(req,res)=>{
+  for(const key of ['logo','qr']){
+    const file=req.files?.[key]?.[0];
+    if(file){ const data=`data:${file.mimetype};base64,${file.buffer.toString('base64')}`; await q('INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value',[key==='logo'?'logo_data':'qr_data',data]); }
+  }
+  res.json({ok:true});
+});
+app.post('/api/admin/inventory',auth,adminMutationGuard,async(req,res)=>{
+  const rows=Array.isArray(req.body.items)?req.body.items:[];
+  if(rows.length>500) return res.status(400).json({error:'Maximum 500 IDs per upload'});
+  if(!rows.length) return res.status(400).json({error:'No IDs provided'});
+  const client=await pool.connect();
+  try{ await client.query('BEGIN'); for(const item of rows){ if(!item.login_id) continue; await client.query('INSERT INTO inventory(login_id,login_password,extra_data) VALUES($1,$2,$3)',[encryptSecret(item.login_id),encryptSecret(item.login_password||null),encryptSecret(item.extra_data||null)]); } await client.query('COMMIT'); res.json({ok:true}); }
+  catch(e){await client.query('ROLLBACK');res.status(500).json({error:'Could not add inventory'});} finally{client.release();}
+});
+app.delete('/api/admin/inventory/:id',auth,adminMutationGuard,async(req,res)=>{ await q("DELETE FROM inventory WHERE id=$1 AND status='available'",[req.params.id]); res.json({ok:true}); });
+
+async function createOrder(req,res){
+  const qty=Number(req.body.qty), name=(req.body.name||'').trim(), phone=(req.body.phone||'').trim();
+  if(!Number.isInteger(qty) || qty < 1 || qty > 1000) return res.status(400).json({error:'Quantity must be between 1 and 1000'});
+  // Use the current Admin Panel price-per-ID for every new order/QR.
+  const s=await settings();
+  const savedPrice=Number(s.price_per_id);
+  const basePrice=Number.isFinite(savedPrice) && savedPrice>0 ? savedPrice : 1;
+  const originalPrice=Math.round(basePrice * qty * 100) / 100;
+  const packageDiscount=([1,2,5,10,15,20].includes(qty)) ? Number(s['package_discount_'+qty] || 0) : 0;
+  const discount=Number.isFinite(packageDiscount) && packageDiscount>0 ? Math.min(originalPrice, packageDiscount) : 0;
+  const price=Math.max(0, Math.round((originalPrice-discount) * 100) / 100);
+  if(!price) return res.status(400).json({error:'Package not configured'});
+  const count=await q("SELECT COUNT(*)::int AS count FROM inventory WHERE status='available'");
+  if(count.rows[0].count<qty) return res.status(409).json({error:'Not enough stock'});
+
+  // Merchant UPI VPA extracted from the QR supplied by the store owner.
+  // A fresh UPI intent QR is generated for every order so the exact amount
+  // (quantity × price) is encoded in the QR itself.
+  const vpa=String(s.upi_vpa || process.env.UPI_VPA || 'Q127502433@ybl').trim();
+  const payee=String(s.upi_name || process.env.UPI_NAME || 'PhonePeMerchant').trim();
+  if(!vpa) return res.status(500).json({error:'UPI VPA is not configured'});
+
+  try{
+    const orderId='NB'+Date.now()+crypto.randomBytes(6).toString('hex');
+    const orderToken=crypto.randomBytes(32).toString('base64url');
+    const orderTokenHash=crypto.createHash('sha256').update(orderToken).digest('hex');
+    const amount=price.toFixed(2);
+    const upiLink='upi://pay?pa='+encodeURIComponent(vpa)+'&pn='+encodeURIComponent(payee)+'&am='+encodeURIComponent(amount)+'&cu=INR&tn='+encodeURIComponent(orderId);
+    const qrImage=await QRCode.toDataURL(upiLink,{width:360,margin:2,errorCorrectionLevel:'M'});
+    await q('INSERT INTO orders(order_id,qr_code_id,package_qty,amount_paise,status,customer_name,customer_phone) VALUES($1,$2,$3,$4,$5,$6,$7)',[orderId,orderTokenHash,qty,money(price),'created',name,phone]);
+    res.json({orderId,orderToken,qrImage,upiLink,amount:money(price),currency:'INR',quantity:qty,pricePerId:basePrice,originalAmount:money(originalPrice),discount:money(discount),expiresAt:Date.now()+300000});
+  }catch(e){console.error('Manual UPI order create error:',e);res.status(500).json({error:e.message || 'Could not create order'});}
+}
+app.post('/api/orders', rateLimit(apiHits,60*1000,20), createOrder);
+
+function verifyOrderToken(order,token){
+  if(!order || !order.qr_code_id || !token) return false;
+  const expected=Buffer.from(String(order.qr_code_id),'utf8');
+  const actual=Buffer.from(crypto.createHash('sha256').update(String(token)).digest('hex'),'utf8');
+  return expected.length===actual.length && crypto.timingSafeEqual(expected,actual);
+}
+
+async function verifyTurnstile(token, req){
+  const secret=String(process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY||'').trim();
+  if(!secret) return {ok:false, reason:'Cloudflare Turnstile is not configured'};
+  if(!token || String(token).length<10) return {ok:false, reason:'Cloudflare verification required'};
+  try{
+    const body=new URLSearchParams({secret,response:String(token)});
+    const ip=clientIp(req); if(ip && ip!=='unknown') body.set('remoteip',ip);
+    const r=await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+    const d=await r.json();
+    const host=String(d?.hostname||'').toLowerCase();
+    if(!d?.success) return {ok:false, reason:'Cloudflare verification failed'};
+    if(host && host!=='nishadbrand.online' && host!=='www.nishadbrand.online') return {ok:false, reason:'Cloudflare verification failed'};
+    return {ok:true};
+  }catch(e){ console.error('Turnstile verify error:',e); return {ok:false, reason:'Cloudflare verification unavailable'}; }
+}
+
+async function utrCloudflareGuard(req,res,next){
+  // Prefer the already-issued site gate cookie. If it is missing, verify the
+  // Turnstile token submitted by the UTR form and issue the gate cookie here.
+  try {
+    const gate=String(req.cookies?.[CF_GATE_COOKIE]||'');
+    if(gate){
+      const data=jwt.verify(gate, process.env.JWT_SECRET);
+      if(data?.type==='cloudflare_gate') return next();
+    }
+  } catch {}
+
+  const token=String(req.body?.turnstileToken||'').trim();
+  const result=await verifyTurnstile(token,req);
+  if(!result.ok) return res.status(403).json({error:result.reason||'Cloudflare verification required'});
+  res.cookie(CF_GATE_COOKIE,signSiteGateToken(),{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'lax',path:'/',maxAge:12*60*60*1000});
+  next();
+}
+
+app.post('/api/orders/:orderId/utr', utrCloudflareGuard, rateLimit(apiHits,60*1000,20), async(req,res)=>{
+  try{
+    const orderId=String(req.params.orderId||'').trim();
+    const orderToken=String(req.headers['x-order-token']||'').trim();
+    const utr=String(req.body?.utr||'').trim().replace(/\s+/g,'');
+    if(!orderId || !utr || !/^[A-Za-z0-9]{8,35}$/.test(utr)) return res.status(400).json({error:'UTR / Transaction ID must be 8–35 letters or digits (no spaces/symbols)'});
+    const ord=await q('SELECT * FROM orders WHERE order_id=$1',[orderId]);
+    if(!ord.rows[0]) return res.status(404).json({error:'Order not found'});
+    const order=ord.rows[0];
+    if(!verifyOrderToken(order,orderToken)) return res.status(403).json({error:'Invalid order session'});
+    if(order.status==='approved' || order.status==='paid') return res.json({ok:true,status:'approved',...await getOrderItems(orderId)});
+    if(order.status==='rejected') return res.status(400).json({error:'This order was rejected'});
+    if(Date.now() > new Date(order.created_at).getTime()+300000) return res.status(410).json({error:'QR expired. Please start a new order.'});
+    const duplicate=await q('SELECT order_id,status FROM orders WHERE LOWER(utr)=LOWER($1) AND order_id<>$2 LIMIT 1',[utr,orderId]);
+    if(duplicate.rows[0]) return res.status(409).json({error:'This UTR is already submitted for another order'});
+    const r=await q("UPDATE orders SET status='payment_received',utr=$1,utr_submitted_at=NOW() WHERE order_id=$2 AND status='created' RETURNING order_id,utr,package_qty,amount_paise,status,utr_submitted_at",[utr,orderId]);
+    if(!r.rows[0]){
+      const latest=await q('SELECT * FROM orders WHERE order_id=$1',[orderId]);
+      if(latest.rows[0]?.status==='payment_received') return res.json({ok:true,status:'pending_approval',order:latest.rows[0]});
+      return res.status(400).json({error:'Order cannot accept UTR in its current state'});
+    }
+    // If the Merchant Verify phone already received this UTR, reconcile it now.
+    const sms=await q('SELECT * FROM merchant_sms_verifications WHERE LOWER(utr)=LOWER($1) LIMIT 1',[utr]);
+    if(sms.rows[0]){
+      const sv=sms.rows[0];
+      if(Number(sv.amount_paise)!==Number(r.rows[0].amount_paise)){
+        await q("UPDATE merchant_sms_verifications SET matched_order_id=$1,match_status='amount_mismatch' WHERE id=$2",[orderId,sv.id]);
+        await q("UPDATE orders SET status='rejected',sms_amount_paise=$1,sms_match_source='merchant_app_amount_mismatch' WHERE order_id=$2 AND status='payment_received'",[sv.amount_paise,orderId]);
+        return res.status(409).json({ok:false,status:'rejected',order:r.rows[0],message:'Payment amount does not match. Order rejected; no ID was released.'});
+      }
+      await q("UPDATE orders SET sms_verified_at=NOW(),sms_amount_paise=$1,sms_match_source='merchant_sms_app' WHERE order_id=$2 AND status='payment_received'",[sv.amount_paise,orderId]);
+      await q("UPDATE merchant_sms_verifications SET matched_order_id=$1,match_status='matched' WHERE id=$2",[orderId,sv.id]);
+      try { await fulfillManual(orderId); } catch(e) { console.error('Auto fulfillment after UTR submit:',e); }
+      const latest=await q('SELECT * FROM orders WHERE order_id=$1',[orderId]);
+      if(latest.rows[0]?.status==='approved' || latest.rows[0]?.status==='paid') return res.json({ok:true,status:'approved',order:latest.rows[0],items:await getApprovedItems(orderId)});
+    }
+    res.json({ok:true,status:'pending_approval',order:r.rows[0],message:'UTR recorded. Merchant Verify app will automatically verify the matching payment SMS and release the IDs.'});
+  }catch(e){
+    console.error('UTR submit error:',e);
+    if(e && e.code==='23505' && String(e.constraint||'').includes('orders_utr_unique')) return res.status(409).json({error:'This UTR has already been submitted and cannot be reused.'});
+    res.status(500).json({error:'Could not submit UTR'});
+  }
+});
+
+app.post('/api/merchant/sms-verify', merchantAppAuth, rateLimit(apiHits,60*1000,60), async(req,res)=>{
+  try {
+    const utr=String(req.body?.utr||'').trim().replace(/\s+/g,'').toUpperCase();
+    const amountPaise=Number(req.body?.amount_paise);
+    if(!/^[A-Z0-9]{8,35}$/.test(utr)) return res.status(400).json({error:'Invalid UTR'});
+    if(!Number.isSafeInteger(amountPaise) || amountPaise<=0) return res.status(400).json({error:'Invalid amount'});
+
+    const existing=await q('SELECT * FROM merchant_sms_verifications WHERE LOWER(utr)=LOWER($1) LIMIT 1',[utr]);
+    if(existing.rows[0] && existing.rows[0].match_status==='matched') return res.json({ok:true,status:'already_matched',utr});
+    if(existing.rows[0]) {
+      await q("UPDATE merchant_sms_verifications SET amount_paise=$1,received_at=NOW(),match_status='pending' WHERE id=$2",[amountPaise,existing.rows[0].id]);
+    } else {
+      await q("INSERT INTO merchant_sms_verifications(utr,amount_paise) VALUES($1,$2)",[utr,amountPaise]);
+    }
+
+    const ord=await q('SELECT * FROM orders WHERE LOWER(utr)=LOWER($1) ORDER BY created_at DESC LIMIT 1',[utr]);
+    if(!ord.rows[0]) return res.json({ok:true,status:'waiting_for_website_utr',utr,amount_paise:amountPaise});
+    const order=ord.rows[0];
+    if(order.status==='rejected') {
+      await q("UPDATE merchant_sms_verifications SET matched_order_id=$1,match_status='rejected_order' WHERE LOWER(utr)=LOWER($2)",[order.order_id,utr]);
+      return res.status(409).json({ok:false,status:'rejected_order'});
+    }
+    if(order.status==='approved' || order.status==='paid') return res.json({ok:true,status:'already_approved',order_id:order.order_id});
+    if(Number(order.amount_paise)!==amountPaise){
+      await q("UPDATE orders SET sms_amount_paise=$1,sms_match_source='merchant_app_amount_mismatch' WHERE order_id=$2",[amountPaise,order.order_id]);
+      await q("UPDATE merchant_sms_verifications SET matched_order_id=$1,match_status='amount_mismatch' WHERE LOWER(utr)=LOWER($2)",[order.order_id,utr]);
+      return res.status(409).json({ok:false,status:'amount_mismatch',expected_amount_paise:Number(order.amount_paise),received_amount_paise:amountPaise});
+    }
+
+    await q("UPDATE orders SET sms_verified_at=NOW(),sms_amount_paise=$1,sms_match_source='merchant_sms_app' WHERE order_id=$2 AND status='payment_received'",[amountPaise,order.order_id]);
+    await q("UPDATE merchant_sms_verifications SET matched_order_id=$1,match_status='matched' WHERE LOWER(utr)=LOWER($2)",[order.order_id,utr]);
+    await fulfillManual(order.order_id);
+    const latest=await q('SELECT order_id,status,amount_paise,utr,fulfilled_at FROM orders WHERE order_id=$1',[order.order_id]);
+    return res.json({ok:true,status:'approved',order:latest.rows[0],items:await getApprovedItems(order.order_id)});
+  } catch(e) {
+    console.error('Merchant SMS verify error:',e);
+    if(e && e.code==='23505') return res.status(409).json({error:'This UTR has already been processed'});
+    return res.status(500).json({error:'Could not process merchant SMS verification'});
+  }
+});
+
+app.get('/api/payment/qr-status/:orderId', rateLimit(apiHits,60*1000,60), async(req,res)=>{
+  try{
+    const ord=await q('SELECT order_id,qr_code_id,status,utr,package_qty,amount_paise,created_at,fulfilled_at FROM orders WHERE order_id=$1',[req.params.orderId]);
+    if(!ord.rows[0]) return res.status(404).json({error:'Order not found'});
+    const order=ord.rows[0];
+    if(!verifyOrderToken(order,String(req.headers['x-order-token']||''))) return res.status(403).json({error:'Invalid order session'});
+    const publicOrder={order_id:order.order_id,package_qty:order.package_qty,amount_paise:order.amount_paise,status:order.status,created_at:order.created_at,fulfilled_at:order.fulfilled_at};
+    if(order.status==='approved' || order.status==='paid') return res.json({status:'approved',order:publicOrder,items:await getApprovedItems(order.order_id)});
+    if(order.status==='payment_received') return res.json({status:'pending_approval',order:publicOrder});
+    if(order.status==='rejected') return res.json({status:'rejected',order:publicOrder});
+    const expiresAt=new Date(order.created_at).getTime()+300000;
+    res.json({status:Date.now()>expiresAt?'expired':'pending',expiresAt,order:publicOrder});
+  }catch(e){console.error('Manual QR status error:',e);res.status(500).json({error:e.message||'Could not check order'});}
+});
+
+// Strict UTR verification: an order submitted with a UTR must receive a matching
+// merchant SMS (UTR + exact amount) within the verification window. Otherwise
+// it is rejected automatically and no ID can be released.
+const UTR_VERIFY_WINDOW_MS = 90 * 1000;
+async function autoRejectUnverifiedOrders(){
+  try{
+    await q(`UPDATE orders SET status='rejected'
+      WHERE status='payment_received'
+        AND utr IS NOT NULL
+        AND sms_verified_at IS NULL
+        AND COALESCE(utr_submitted_at, created_at) < NOW() - INTERVAL '90 seconds'`);
+  }catch(e){ console.error('Auto reject unverified UTRs:',e.message); }
+}
+setInterval(autoRejectUnverifiedOrders, 15000);
+
+async function fulfillManual(orderId){
+  const client=await pool.connect();
+  try{
+    await client.query('BEGIN');
+    const ord=await client.query('SELECT * FROM orders WHERE order_id=$1 FOR UPDATE',[orderId]);
+    if(!ord.rows[0]) throw new Error('Order not found');
+    if(ord.rows[0].status==='approved' || ord.rows[0].status==='paid'){ await client.query('COMMIT'); return; }
+    if(ord.rows[0].status!=='payment_received' || !ord.rows[0].utr) throw new Error('UTR/payment is still pending');
+    if(!ord.rows[0].sms_verified_at || Number(ord.rows[0].sms_amount_paise)!==Number(ord.rows[0].amount_paise)) throw new Error('Payment SMS verification is required before ID release');
+    const items=await client.query("SELECT id FROM inventory WHERE status='available' ORDER BY id ASC FOR UPDATE SKIP LOCKED LIMIT $1",[ord.rows[0].package_qty]);
+    if(items.rows.length<ord.rows[0].package_qty){ await client.query('ROLLBACK'); throw new Error('Insufficient stock at fulfillment'); }
+    for(const item of items.rows){
+      await client.query("UPDATE inventory SET status='sold',sold_order_id=$1,reserved_order_id=NULL WHERE id=$2",[orderId,item.id]);
+      await client.query('INSERT INTO order_items(order_id,inventory_id) VALUES($1,$2)',[orderId,item.id]);
+    }
+    await client.query("UPDATE orders SET status='approved',fulfilled_at=NOW() WHERE order_id=$1",[orderId]);
+    await client.query('COMMIT');
+  }catch(e){try{await client.query('ROLLBACK')}catch{};throw e;}finally{client.release();}
+}
+
+async function getApprovedItems(orderId){
+  const items=await q('SELECT i.login_id,i.login_password,i.extra_data FROM order_items oi JOIN inventory i ON i.id=oi.inventory_id WHERE oi.order_id=$1 ORDER BY i.id',[orderId]);
+  return items.rows.map(i=>({login_id:decryptSecret(i.login_id),login_password:decryptSecret(i.login_password),extra_data:decryptSecret(i.extra_data)}));
+}
+async function getOrderItems(utr){
+  const ord=await q('SELECT order_id,status,package_qty,amount_paise,created_at,fulfilled_at FROM orders WHERE LOWER(utr)=LOWER($1) ORDER BY created_at DESC LIMIT 1',[utr]);
+  if(!ord.rows[0]) return {found:false};
+  const order=ord.rows[0];
+  const publicOrder={order_id:order.order_id,status:order.status,package_qty:order.package_qty,amount_paise:order.amount_paise,created_at:order.created_at,fulfilled_at:order.fulfilled_at};
+  if(order.status==='approved' || order.status==='paid') return {found:true,status:'approved',order:publicOrder,items:await getApprovedItems(order.order_id)};
+  return {found:true,status:order.status==='rejected'?'rejected':'pending',order:publicOrder,items:[]};
+}
+function claimRateLimit(req,res,next){
+  const ip=clientIp(req);
+  const now=Date.now();
+  const key=ip+'|claim';
+  const a=claimHits.get(key);
+  if(!a || now-a.first>=10*60*1000){ claimHits.set(key,{first:now,count:1}); return next(); }
+  a.count++;
+  if(a.count>5) return res.status(429).json({error:'Too many claim attempts. Please try again later.'});
+  next();
+}
+app.post('/api/claim-bonus/:utr', claimRateLimit, async(req,res)=>{
+  const utr=String(req.params.utr||'').trim().replace(/\s+/g,'');
+  if(!/^[A-Za-z0-9]{8,35}$/.test(utr)) return res.status(400).json({error:'Invalid UTR / Transaction ID'});
+  const client=await pool.connect();
+  try{
+    await client.query('BEGIN');
+    const r=await client.query('SELECT * FROM orders WHERE LOWER(utr)=LOWER($1) LIMIT 1 FOR UPDATE',[utr]);
+    if(!r.rows[0]){await client.query('ROLLBACK');return res.status(404).json({error:'NOT FOUND: This UTR was not found'});}
+    const order=r.rows[0];
+    const bonusQty=Math.max(1,Math.min(100000,parseInt(await setting('bonus_purchase_qty'),10)||10));
+    const bonusEnabled=(await setting('bonus_offer_enabled'))!=='false';
+    if(!bonusEnabled){await client.query('ROLLBACK');return res.status(403).json({error:'Bonus offer is currently OFF'});}
+    if(order.package_qty!==bonusQty){await client.query('ROLLBACK');return res.status(400).json({error:'NOT FOUND: This UTR is not linked to the required bonus-eligible purchase'});}
+    if(order.status!=='approved' && order.status!=='paid'){await client.query('ROLLBACK');return res.status(400).json({error:'Payment must be approved before claiming the bonus ID'});}
+    const originalItems=await client.query('SELECT COUNT(*)::int AS count FROM order_items WHERE order_id=$1',[order.order_id]);
+    if(originalItems.rows[0].count < bonusQty){await client.query('ROLLBACK');return res.status(400).json({error:'NOT FOUND: This order is not eligible for the bonus claim'});}
+    if(order.claim_status==='approved' || order.claim_used_at){
+      await client.query('ROLLBACK');
+      return res.status(409).json({error:'ALREADY CLAIMED: Is UTR se 1 bonus ID pehle hi claim ho chuki hai.'});
+    }
+    if(order.claim_status==='rejected'){await client.query('ROLLBACK');return res.status(409).json({error:'This UTR cannot be claimed again'});}
+    if(!order.fulfilled_at){await client.query('ROLLBACK');return res.status(400).json({error:'Claim window is not available'});}
+    const deadline=new Date(order.fulfilled_at).getTime()+24*60*60*1000;
+    if(Date.now()>deadline){await client.query('ROLLBACK');return res.status(410).json({error:'24-hour claim window has expired'});}
+    const stock=await client.query("SELECT id FROM inventory WHERE status='available' ORDER BY id ASC LIMIT 1 FOR UPDATE SKIP LOCKED");
+    if(!stock.rows[0]){await client.query('ROLLBACK');return res.status(409).json({error:'Bonus ID is out of stock'});}
+    const inventoryId=stock.rows[0].id;
+    await client.query("UPDATE inventory SET status='sold',sold_order_id=$1,reserved_order_id=NULL WHERE id=$2",[order.order_id,inventoryId]);
+    await client.query('INSERT INTO order_items(order_id,inventory_id) VALUES($1,$2)',[order.order_id,inventoryId]);
+    await client.query("UPDATE orders SET claim_used_at=NOW(),claim_status='approved',claim_requested_at=COALESCE(claim_requested_at,NOW()) WHERE order_id=$1",[order.order_id]);
+    const claimed=await client.query('SELECT login_id,login_password,extra_data FROM inventory WHERE id=$1',[inventoryId]);
+    await client.query('COMMIT');
+    const x=claimed.rows[0];
+    res.json({ok:true,approved:true,utr:order.utr,orderId:order.order_id,items:[{login_id:decryptSecret(x.login_id),login_password:decryptSecret(x.login_password),extra_data:decryptSecret(x.extra_data)}],message:'1 bonus ID released successfully.'});
+  }catch(e){try{await client.query('ROLLBACK')}catch{};console.error('Bonus claim error:',e);res.status(500).json({error:'Could not claim bonus ID'});}
+  finally{client.release();}
+});
+
+app.post('/api/admin/manual-bonus-release/:utr',auth,adminMutationGuard,async(req,res)=>{
+  const client=await pool.connect();
+  try{
+    await client.query('BEGIN');
+    const r=await client.query("SELECT * FROM orders WHERE LOWER(utr)=LOWER($1) ORDER BY created_at DESC LIMIT 1 FOR UPDATE",[String(req.params.utr||'').trim()]);
+    const order=r.rows[0];
+    if(!order){await client.query('ROLLBACK');return res.status(404).json({error:'NOT FOUND: UTR not found'});}
+    const bonusQty=Math.max(1,Math.min(100000,parseInt(await setting('bonus_purchase_qty'),10)||10)); if(order.package_qty!==bonusQty || (order.status!=='approved' && order.status!=='paid')){await client.query('ROLLBACK');return res.status(400).json({error:'This UTR is not an approved bonus-eligible purchase'});}
+    if(order.claim_status==='approved' || order.claim_used_at){await client.query('ROLLBACK');return res.status(409).json({error:'This UTR has already used the 1 ID bonus claim'});}
+    if(!order.fulfilled_at || Date.now()>new Date(order.fulfilled_at).getTime()+24*60*60*1000){await client.query('ROLLBACK');return res.status(410).json({error:'24-hour bonus claim window has expired'});}
+    const stock=await client.query("SELECT id FROM inventory WHERE status='available' ORDER BY id ASC LIMIT 1 FOR UPDATE");
+    if(!stock.rows[0]){await client.query('ROLLBACK');return res.status(409).json({error:'Bonus ID is out of stock'});}
+    const inventoryId=stock.rows[0].id;
+    await client.query("UPDATE inventory SET status='sold',sold_order_id=$1 WHERE id=$2",[order.order_id+'-BONUS',inventoryId]);
+    await client.query("INSERT INTO order_items(order_id,inventory_id) VALUES($1,$2)",[order.order_id,inventoryId]);
+    await client.query("UPDATE orders SET claim_used_at=NOW(),claim_status='approved',claim_requested_at=COALESCE(claim_requested_at,NOW()) WHERE order_id=$1",[order.order_id]);
+    const claimed=await client.query('SELECT login_id,login_password,extra_data FROM inventory WHERE id=$1',[inventoryId]);
+    await client.query('COMMIT');
+    res.json({ok:true,utr:order.utr,order_id:order.order_id,bonus:claimed.rows[0]});
+  }catch(e){try{await client.query('ROLLBACK')}catch{};console.error('Manual bonus release error:',e);res.status(500).json({error:'Could not manually release bonus ID'});}finally{client.release();}
+});
+
+app.get('/api/order-check/:utr', rateLimit(apiHits,60*1000,20), async(req,res)=>{ try{ const utr=String(req.params.utr||'').trim().replace(/\s+/g,''); if(!/^[A-Za-z0-9]{8,35}$/.test(utr)) return res.status(400).json({error:'Invalid UTR / Transaction ID'}); res.json(await getOrderItems(utr)); }catch{res.status(500).json({error:'Server error'});} });
+
+app.get('/admin', (req,res)=>{ res.set('Cache-Control','no-store'); res.sendFile(path.join(__dirname,'public','admin.html')); });
+
+(async()=>{
+  try{
+    await q(fs.readFileSync(path.join(__dirname,'schema.sql'),'utf8'));
+    await migrateOrdersSchema();
+    await migrateInventoryEncryption();
+    await normalizeStorePrice();
+    app.listen(PORT,()=>console.log(`NISHAD BRAND running on ${PORT}`));
+  }catch(e){ console.error('Startup DB error:',e); process.exit(1); }
+})();
