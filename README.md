@@ -19,3 +19,11 @@ A UPI QR creates a payment intent; it does **not** verify that money was receive
 - Attach a persistent disk mounted at `/var/data`, then set `DATA_DIR=/var/data` in environment variables. The app stores both SQLite database files on that disk. Free Render instances do not support persistent disks.
 - Configure `SESSION_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, and `CREDENTIAL_ENCRYPTION_KEY` as private environment variables. Use a 64-character hex encryption key.
 - Never upload `.env`, database files, real credentials, or secret values to GitHub. Use HTTPS and test before real orders/payments.
+
+## Production checks added
+- `/health` endpoint for basic service health checks.
+- Production startup refuses to run when required security environment variables are missing or malformed.
+- Duplicate UTR/RRN submissions are rejected. Admin must still verify payment in their bank/UPI app.
+
+## Important Render free-plan note
+This app uses SQLite for orders, inventory, settings, and sessions. SQLite data is not persistent on a typical Render free web service filesystem and can be lost on restart/redeploy. Do not use this as a live store with real orders or credentials until durable storage is configured (for example, a persistent disk on a plan that supports it, or a migration to a managed persistent database). Never treat a submitted UTR as proof of payment.
