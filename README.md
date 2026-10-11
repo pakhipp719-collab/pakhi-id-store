@@ -14,4 +14,8 @@ A UPI QR creates a payment intent; it does **not** verify that money was receive
 6. Run `npm install`, then `npm start`.
 7. Visit `http://localhost:3000/admin/login`, sign in, set price/UPI, add news and inventory.
 
-Deploy on a Node.js host with persistent disk for SQLite, HTTPS, and environment variables configured privately. Never upload `.env` or `store.db` publicly. Review and test before using with real customers/payments.
+## Render deployment
+- Use a Node.js Web Service with Build Command `npm install` and Start Command `npm start`.
+- Attach a persistent disk mounted at `/var/data`, then set `DATA_DIR=/var/data` in environment variables. The app stores both SQLite database files on that disk. Free Render instances do not support persistent disks.
+- Configure `SESSION_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, and `CREDENTIAL_ENCRYPTION_KEY` as private environment variables. Use a 64-character hex encryption key.
+- Never upload `.env`, database files, real credentials, or secret values to GitHub. Use HTTPS and test before real orders/payments.
