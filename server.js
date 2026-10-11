@@ -27,6 +27,23 @@ if(db.prepare('SELECT id FROM orders WHERE lower(utr)=lower(?)').get(utr))return
 if(qty>stock)return res.status(400).send('Not enough stock.');
 const o=db.prepare('INSERT INTO orders(utr,qty,amount,status) VALUES(?,?,?,?)').run(utr,qty,amount,'pending');res.redirect('/order-status/'+o.lastInsertRowid)});
 app.get('/order-status/:id',(req,res)=>{const order=db.prepare('SELECT id,qty,amount,status,created_at FROM orders WHERE id=?').get(+req.params.id);if(!order)return res.status(404).send('Order not found');res.render('order-status',{order})});
+const findAttempts=new Map();
+app.post('/find-id',csrf,(req,res)=>{
+ const now=Date.now(),ip=req.ip,entry=findAttempts.get(ip)||{count:0,reset:now+15*60*1000};
+ if(now>entry.reset){entry.count=0;entry.reset=now+15*60*1000;}
+ entry.count++;findAttempts.set(ip,entry);
+ if(entry.count>10)return res.status(429).json({error:'Bahut zyada attempts hue. 15 minute baad phir koshish karein.'});
+ const utr=String(req.body.utr||'').trim();
+ if(!/^[A-Za-z0-9-]{6,32}$/.test(utr))return res.status(400).json({error:'Sahi UTR / RRN number enter karein.'});
+ const order=db.prepare("SELECT id,status FROM orders WHERE lower(utr)=lower(?)").get(utr);
+ if(!order)return res.status(404).json({error:'Is UTR/RRN se order nahi mila. Number check karein.'});
+ if(order.status!=='approved')return res.status(403).json({error:order.status==='pending'?'Payment abhi verify nahi hua hai. Approval ke baad dobara check karein.':'Yeh order approve nahi hua hai. Admin se sampark karein.'});
+ try{
+  const credentials=db.prepare('SELECT username,password_enc FROM inventory WHERE order_id=? ORDER BY id').all(order.id).map(x=>({username:x.username,password:dec(x.password_enc)}));
+  if(!credentials.length)return res.status(404).json({error:'Is order ke liye ID details nahi mili. Admin se sampark karein.'});
+  res.set('Cache-Control','no-store').json({credentials});
+ }catch(e){res.status(500).json({error:'ID details abhi load nahi ho paayi.'});}
+});
 app.get('/admin/login',(req,res)=>res.render('login',{error:''}));app.post('/admin/login',csrf,async(req,res)=>{const hash=process.env.ADMIN_PASSWORD_HASH||'';if(req.body.username===(process.env.ADMIN_USERNAME||'admin')&&hash&&await bcrypt.compare(String(req.body.password||''),hash)){req.session.regenerate(e=>{if(e)return res.status(500).send('Session error');req.session.admin=true;req.session.csrf=crypto.randomBytes(24).toString('hex');res.redirect('/admin')})}else res.status(401).render('login',{error:'Login details galat hain.'})});app.post('/admin/logout',csrf,(req,res)=>req.session.destroy(()=>res.redirect('/')));
 app.get('/admin',admin,(req,res)=>res.render('admin',{s:settings(),news:db.prepare('SELECT * FROM news ORDER BY id DESC').all(),inventory:db.prepare('SELECT id,username,status,order_id FROM inventory ORDER BY id DESC LIMIT 100').all(),orders:db.prepare('SELECT * FROM orders ORDER BY id DESC LIMIT 100').all(),available:db.prepare("SELECT COUNT(*) n FROM inventory WHERE status='available'").get().n,message:req.query.msg||''}));
 app.post('/admin/settings',admin,csrf,(req,res)=>{const price=+req.body.price_per_id,upi=String(req.body.upi_id||'').trim();if(!Number.isFinite(price)||price<1||price>100000)return res.status(400).send('Rate 1–100000 ke beech hona chahiye.');if(upi&&!/^[\w.\-]{2,256}@[A-Za-z]{2,32}$/.test(upi))return res.status(400).send('UPI ID format galat hai.');for(const [k,v] of Object.entries({price_per_id:String(price),upi_id:upi,upi_name:String(req.body.upi_name||'PAKHI ID Store').slice(0,100),announcement:String(req.body.announcement||'').slice(0,240)}))put.run(k,v);res.redirect('/admin?msg=Settings+saved')});
