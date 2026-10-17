@@ -26,11 +26,11 @@ services:
       - key: WHATSAPP_NUMBER
         value: "9296271001"
       - key: SITE_NAME
-        value: "NISHAD BRAND"
+        value: "PAKHI"
       - key: UPI_VPA
         sync: false
       - key: UPI_NAME
-        value: "NISHAD BRAND"
+        value: "PAKHI"
 
 databases:
   - name: nishad-brand-db

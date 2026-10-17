@@ -1,4 +1,4 @@
-NISHAD BRAND V44.14 — Cloudflare Turnstile UTR FIX
+PAKHI V44.14 — Cloudflare Turnstile UTR FIX
 
 Fixes:
 - Turnstile script/frame/connect CSP permissions added for challenges.cloudflare.com.

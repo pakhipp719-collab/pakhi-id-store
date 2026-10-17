@@ -1,4 +1,4 @@
-# NISHAD BRAND — Render + UPI Setup
+# PAKHI — Render + UPI Setup
 
 ## Recommended: use render.yaml
 This ZIP contains `render.yaml`. It creates the web service and a PostgreSQL database and connects `DATABASE_URL` automatically.

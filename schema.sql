@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS order_items (
 );
 
 INSERT INTO settings(key,value) VALUES
-('site_name','NISHAD BRAND'),
+('site_name','PAKHI'),
 ('whatsapp_number','9296271001'),
 ('logo_data',''),
 ('qr_data',''),

@@ -1,0 +1,66 @@
+<!doctype html><html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PAKHI • Live Store</title><link rel="icon" type="image/png" href="/favicon.png"><link rel="apple-touch-icon" href="/favicon.png"><link rel="stylesheet" href="style.css"><meta name="cf-turnstile-site-key" content="__CF_TURNSTILE_SITE_KEY__"><script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+</head><body>
+<header class="site-header">
+  <div class="brand-wrap">
+    <div class="logo-ring"><img id="logo" class="logo" src="/logo.png" alt="PAKHI"></div>
+    <div>
+      <h1 id="siteName">PAKHI</h1>
+      <p>Fast • Secure • Verified ID Store</p>
+    </div>
+  </div>
+  <div class="header-actions main-actions" aria-label="Find ID and Bonus">
+    <button id="findIdBtn" class="manage-btn find-id-btn" type="button" onclick="openManageSection('utrCheckSection')">🔎 Find ID</button>
+    <button id="bonusBtn" class="manage-btn bonus-btn" type="button" onclick="openManageSection('bonusClaimSection')">🎁 Bonus</button>
+  </div>
+</header>
+<main>
+<section id="store" class="store-section">
+  <div id="newsBar" class="news-bar hidden"><span class="news-dot">●</span><span id="newsText"></span></div>
+  <div id="stockBanner" class="stock-banner"></div><div class="hero-title">
+    <div>
+      <span class="eyebrow">PAKHI STORE</span>
+      <div class="id-select-label"><span class="select-cart-icon" aria-hidden="true">🛒</span> Select Number of IDs:</div>
+      <p>Fast checkout • Secure payment • Automatic verification</p>
+    </div>
+    <div class="trust-pill">⚡ INSTANT PROCESSING</div>
+  </div><div id="packages" class="grid"></div></section>
+<section id="utrCheckSection" class="check manage-panel utr-redesign" aria-label="Find ID / UTR Check" aria-hidden="true">
+  <div class="utr-redesign-head"><span class="utr-redesign-icon" aria-hidden="true">▤</span><span>Enter your Bank UTR / RRN Number</span></div>
+  <label class="sr-only" for="utr">Bank UTR / RRN Number</label>
+  <input id="utr" class="utr-redesign-input" placeholder="Enter UTR / RRN Number Here..." maxlength="35" inputmode="text" autocomplete="off">
+  <button class="utr-fetch-button" type="button" onclick="checkUTR()"><span aria-hidden="true">🚀</span> Fetch IDs <span aria-hidden="true">➜</span></button>
+  <div id="result" class="utr-result" aria-live="polite"></div>
+</section>
+<section id="bonusClaimSection" class="check manage-panel bonus-redesign" aria-label="Bonus Claim" aria-hidden="true">
+  <div class="bonus-redesign-top"><span class="bonus-redesign-icon" aria-hidden="true">🎁</span><div><span class="bonus-kicker">PAKHI REWARDS</span><h2>Bonus Claim Center</h2></div></div>
+  <p class="bonus-redesign-copy">अपना वही payment UTR डालें जिसका bonus claim करना है। नीचे दिए गए बटन से bonus request भेजें।</p>
+  <div class="bonus-perk"><span aria-hidden="true">✨</span><div><strong id="claimTitle">10 ID Purchase Bonus</strong><p id="claimDescription">10 ID खरीदने पर उसी UTR से <b>1 extra ID claim</b> करें। Claim केवल <b>1 बार</b> और payment approval के <b>24 घंटे के अंदर</b> होगा।</p></div></div>
+  <label class="sr-only" for="claimUtr">Payment UTR</label>
+  <input id="claimUtr" class="bonus-redesign-input" placeholder="Enter the same payment UTR..." maxlength="35" inputmode="text" autocomplete="off">
+  <button class="bonus-claim-button" type="button" onclick="claimBonus()">🎉 Claim My Bonus <span aria-hidden="true">➜</span></button>
+  <div id="claimResult" class="bonus-result" aria-live="polite"></div>
+</section>
+</main>
+<a id="wa" class="whatsapp" target="_blank" rel="noopener" aria-label="WhatsApp support"><span>◉</span><small>Help</small></a>
+<section class="important-instructions" aria-label="Important Instructions">
+  <h3>Important Instructions</h3>
+  <ul>
+    <li><b>Do not change the ID password through software</b></li>
+    <li><b>Do not sync the ID through software</b></li>
+    <li><b>Avoid changing multiple IDs from same IP</b></li>
+    <li><b>If pending, contact us on support</b></li>
+  </ul>
+</section>
+<footer class="site-footer">PAKHI • Secure & Verified ID Store</footer><div id="modal" class="modal hidden"><div class="qr-box">
+  <button class="close" onclick="closePay()">×</button>
+  <div class="qr-head"><h2 id="siteNamePay">PAKHI</h2><div class="pay-title">UPI PAYMENT</div><div id="payText"></div></div>
+  <div id="qrBox" class="qr-area hidden">
+    <div class="scan-title">Scan with any <b>UPI app</b></div>
+    <div class="qr-frame"><img id="qrImage" alt="Secure UPI QR"></div><a id="qrDownload" class="qr-download hidden" href="#" download="PAKHI-UPI-QR.png">⬇ Download QR</a>
+    <div class="upi-apps">GPay&nbsp; • &nbsp;PhonePe&nbsp; • &nbsp;Paytm&nbsp; • &nbsp;BHIM&nbsp; • &nbsp;and more</div><a id="upiOpen" class="upi-open hidden" href="#">↗ Open UPI App &amp; Pay</a>
+    <div class="qr-timer">QR valid for <b id="timer">05:00</b></div>
+  </div>
+  <div class="verify-note"><b>Payment करें और UTR / Transaction ID नीचे submit करें.</b></div><div id="utrBox" class="utr-box"><input id="utrInput" placeholder="Enter UTR / Transaction ID" maxlength="35" inputmode="text" autocomplete="off"><div id="turnstileBox" class="turnstile-box"></div><button id="utrBtn" onclick="submitUTR()">Submit UTR</button><div id="utrMsg"></div></div>
+  <div id="payStatus" class="qr-status">QR तैयार हो रहा है…</div>
+</div></div>
+<script src="app.js?v=44.69"></script></body></html>

@@ -1,4 +1,4 @@
-# NISHAD BRAND — ID Store
+# PAKHI — ID Store
 
 यह project customer storefront + admin panel + PostgreSQL + UPI server-side verification के लिए है।
 
@@ -146,7 +146,7 @@ Admin Panel → Store Settings → Price per ID अब public website, Custom Qu
 Admin Panel हर 3 सेकंड में payment requests check करता है। नया `payment_received` request मिलने पर browser Hindi voice में **“Boss, payment request aaya hai.”** 3 बार बोलेगा। Browser में उपलब्ध Hindi voice के अनुसार आवाज बदल सकती है।
 
 ### 🔄 Store Stock Auto Refresh
-NISHAD BRAND storefront हर 3 सेकंड में `/api/config` से stock/price refresh करता है। ID बिकने पर उपलब्ध stock घटेगा और admin नई ID upload करने पर बढ़ेगा, बिना page manually refresh किए।
+PAKHI storefront हर 3 सेकंड में `/api/config` से stock/price refresh करता है। ID बिकने पर उपलब्ध stock घटेगा और admin नई ID upload करने पर बढ़ेगा, बिना page manually refresh किए।
 
 
 ## 10 ID Bonus Claim — Security

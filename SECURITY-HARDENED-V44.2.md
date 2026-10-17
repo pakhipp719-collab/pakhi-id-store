@@ -1,4 +1,4 @@
-# NISHAD BRAND V44.2 – UTR Security Hardening
+# PAKHI V44.2 – UTR Security Hardening
 
 - UTR is validated server-side as 8–35 alphanumeric characters.
 - The database unique index makes a UTR single-use across orders.

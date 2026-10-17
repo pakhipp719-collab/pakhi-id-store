@@ -1,4 +1,4 @@
-# NISHAD BRAND — Security Hardened V44
+# PAKHI — Security Hardened V44
 
 This version hardens the existing store without putting inventory credentials in frontend HTML/JS.
 
