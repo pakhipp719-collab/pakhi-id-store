@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: nishad-brand-store
+    name: pakhi-store
     runtime: node
     plan: free
     buildCommand: npm install
@@ -8,7 +8,7 @@ services:
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: nishad-brand-db
+          name: pakhi-db
           property: connectionString
       - key: DATABASE_SSL
         value: "true"
@@ -20,8 +20,9 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
-        sync: false
       - key: INVENTORY_ENCRYPTION_KEY
+        sync: false
+      - key: MOBILE_APP_TOKEN
         sync: false
       - key: WHATSAPP_NUMBER
         value: "9296271001"
@@ -33,5 +34,5 @@ services:
         value: "PAKHI"
 
 databases:
-  - name: nishad-brand-db
+  - name: pakhi-db
     plan: free
