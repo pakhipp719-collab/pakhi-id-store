@@ -276,7 +276,7 @@ app.post('/api/site-verify', rateLimit(apiHits,60*1000,30), async (req,res)=>{
     const r=await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
     const cf=await r.json();
     const host=String(cf?.hostname||'').toLowerCase();
-    if(!cf?.success || (host && host!=='nishadbrand.online' && host!=='www.nishadbrand.online')) return res.status(403).json({error:'Cloudflare verification failed'});
+    if(!cf?.success || (host && host!=='pakhi.store' && host!=='www.pakhi.store')) return res.status(403).json({error:'Cloudflare verification failed'});
     res.cookie(CF_GATE_COOKIE,signSiteGateToken(),{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'lax',path:'/',maxAge:12*60*60*1000});
     res.json({ok:true});
   } catch(e){ console.error('Cloudflare site verification error:',e.message); res.status(502).json({error:'Cloudflare verification failed'}); }
@@ -441,7 +441,7 @@ async function verifyTurnstile(token, req){
     const d=await r.json();
     const host=String(d?.hostname||'').toLowerCase();
     if(!d?.success) return {ok:false, reason:'Cloudflare verification failed'};
-    if(host && host!=='nishadbrand.online' && host!=='www.nishadbrand.online') return {ok:false, reason:'Cloudflare verification failed'};
+    if(host && host!=='pakhi.store' && host!=='www.pakhi.store') return {ok:false, reason:'Cloudflare verification failed'};
     return {ok:true};
   }catch(e){ console.error('Turnstile verify error:',e); return {ok:false, reason:'Cloudflare verification unavailable'}; }
 }
