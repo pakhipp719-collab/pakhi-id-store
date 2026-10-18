@@ -13,9 +13,8 @@ findForm.addEventListener('submit',async e=>{
   data.credentials.forEach((item,index)=>{
    const card=document.createElement('div');card.className='credential';
    const title=document.createElement('strong');title.textContent='ID '+(index+1);
-   const user=document.createElement('p');user.textContent='Username: '+item.username;
-   const pass=document.createElement('p');pass.textContent='Password: '+item.password;
-   card.append(title,user,pass);credentials.append(card);
+   const combined=document.createElement('p');combined.textContent=String(item.username||'')+':'+String(item.password||'');
+   card.append(title,combined);credentials.append(card);
   });
  } catch(err) { message.textContent=err.message; message.classList.add('error'); }
  finally { button.disabled=false; }
