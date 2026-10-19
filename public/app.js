@@ -1,5 +1,5 @@
 'use strict';
-let config=null, selected=null, pollTimer=null, countdownTimer=null, storeRefreshTimer=null, storeRefreshBusy=false, turnstileWidgetId=null;
+let config=null, selected=null, pollTimer=null, countdownTimer=null, storeRefreshTimer=null, storeRefreshBusy=false, turnstileWidgetId=null, findIdPollTimer=null;
 const $=id=>document.getElementById(id);
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
 function money(n){return Number(n||0).toLocaleString('en-IN');}
@@ -146,9 +146,26 @@ async function submitUTR(){
     if(!r.ok) throw new Error(d.error||'UTR submit failed');
     $('utrMsg').innerHTML='<div class="payment-processing"><span class="payment-spinner" aria-hidden="true"></span><div><b>Payment Processing...</b><br><small>Payment verify ho raha hai. Please wait.</small></div></div>';
     $('payStatus').innerHTML='<div class="payment-processing"><span class="payment-spinner" aria-hidden="true"></span><div><b>Payment Processing...</b><br><small>Please wait...</small></div></div>';
-    $('utrBtn').disabled=true;
     resetTurnstile();
-    await checkQrStatus(orderId);
+    // After the UTR is safely recorded, take the customer directly to Find ID.
+    // The UTR is prefilled and checked repeatedly; credentials remain hidden
+    // until the server reports an approved/paid order.
+    stopPolling();
+    closePay();
+    const findInput=$('utr');
+    if(findInput) findInput.value=utr;
+    openManageSection('utrCheckSection');
+    $('result').innerHTML='<div class="pending"><b>UTR submitted successfully.</b><br>Payment verify ho raha hai. Approval ke baad ID yahin automatically dikh jayegi.</div>';
+    if(findIdPollTimer) clearInterval(findIdPollTimer);
+    const pollFindId=async()=>{
+      const status=await checkUTR();
+      if(status && status!=='pending'){
+        clearInterval(findIdPollTimer);
+        findIdPollTimer=null;
+      }
+    };
+    await pollFindId();
+    if(!findIdPollTimer) findIdPollTimer=setInterval(pollFindId,3000);
   }catch(e){$('utrMsg').innerHTML='<div class="error">'+esc(e.message)+'</div>';$('utrBtn').disabled=false;resetTurnstile();}
 }
 async function checkQrStatus(orderId){
@@ -215,8 +232,39 @@ async function claimBonus(){
     out.innerHTML='<div class="success"><b>🎁 1 ID CLAIM SUCCESSFUL ✓</b><br>Bonus ID aur password neeche diya gaya hai. Yeh UTR dobara bonus claim nahi kar sakta.<div class="copy-all-wrap">'+copyAllButton(d.items,'📋 Copy All IDs & Passwords')+'</div>'+rows+'</div>';
   }catch(e){out.innerHTML='<div class="error">'+esc(e.message)+'</div>';}
 }
-async function checkUTR(){const u=$('utr').value.trim();if(!/^[A-Za-z0-9]{8,35}$/.test(u)){$('result').innerHTML='<div class="error">Valid UTR / Transaction ID डालें (8–35 letters/digits).</div>';return;}$('result').textContent='Checking…';try{const r=await fetch('/api/order-check/'+encodeURIComponent(u));const d=await r.json();if(!d.found){$('result').innerHTML='<div class="error">Not Found — इस UTR/Payment ID से कोई verified purchase नहीं मिला।</div>';return;}showCheck(d.items,d.order);}catch(e){$('result').innerHTML='<div class="error">'+esc(e.message)+'</div>';}}
-function showCheck(items,order){if(order.status==='rejected'){ $('result').innerHTML='<div class="error">Your UTR / Transaction ID was rejected.</div>';return;} if(order.status!=='approved'&&order.status!=='paid'){ $('result').innerHTML='<div class="pending"><b>Payment Pending Approval</b><br>Payment record mil gaya hai, lekin admin approval abhi pending hai.<br>Order: <code>'+esc(order.order_id)+'</code></div>';return;} const rows=credentialRows(items,'ID ');$('result').innerHTML='<div class="success"><b>Verified Purchase</b><br>Order: <code>'+esc(order.order_id)+'</code><div class="copy-all-wrap">'+copyAllButton(items,'📋 Copy All IDs & Passwords')+'</div>'+rows+'</div>'; }
+async function checkUTR(){
+  const u=$('utr').value.trim();
+  if(!/^[A-Za-z0-9]{8,35}$/.test(u)){
+    $('result').innerHTML='<div class="error">Valid UTR / Transaction ID डालें (8–35 letters/digits).</div>';
+    return 'invalid';
+  }
+  $('result').textContent='Checking…';
+  try{
+    const r=await fetch('/api/order-check/'+encodeURIComponent(u),{cache:'no-store'});
+    const d=await r.json();
+    if(!d.found){
+      $('result').innerHTML='<div class="error">Not Found — इस UTR/Payment ID से कोई verified purchase नहीं मिला।</div>';
+      return 'notfound';
+    }
+    return showCheck(d.items,d.order);
+  }catch(e){
+    $('result').innerHTML='<div class="error">'+esc(e.message)+'</div>';
+    return 'error';
+  }
+}
+function showCheck(items,order){
+  if(order.status==='rejected'){
+    $('result').innerHTML='<div class="error">Your UTR / Transaction ID was rejected.</div>';
+    return 'rejected';
+  }
+  if(order.status!=='approved'&&order.status!=='paid'){
+    $('result').innerHTML='<div class="pending"><b>Payment Pending Approval</b><br>Payment record mil gaya hai, lekin verification abhi pending hai. Approval hote hi ID yahin dikh jayegi.<br>Order: <code>'+esc(order.order_id)+'</code></div>';
+    return 'pending';
+  }
+  const rows=credentialRows(items,'ID ');
+  $('result').innerHTML='<div class="success"><b>Verified Purchase</b><br>Order: <code>'+esc(order.order_id)+'</code><div class="copy-all-wrap">'+copyAllButton(items,'📋 Copy All IDs & Passwords')+'</div>'+rows+'</div>';
+  return 'approved';
+}
 
 
 // Start the site-wide Cloudflare gate as soon as the page DOM is ready.
