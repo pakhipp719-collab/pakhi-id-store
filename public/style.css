@@ -1178,3 +1178,39 @@ body.manage-view #utrCheckSection .utr-fetch-button{
   #utrCheckSection .utr-redesign-input{min-height:46px;padding:10px;font-size:14px}
   body.manage-view #utrCheckSection .utr-fetch-button{min-height:46px;font-size:15px}
 }
+
+/* V44.75 — Extra-small UTR / Find ID panel: stronger final overrides */
+body.manage-view #utrCheckSection.utr-redesign{
+  width:min(calc(100% - 48px),560px)!important;
+  max-width:560px!important;
+  margin:10px auto!important;
+  padding:10px!important;
+  gap:7px!important;
+  border-radius:16px!important;
+  box-sizing:border-box!important;
+}
+body.manage-view #utrCheckSection .utr-redesign-head{
+  min-height:0!important;
+  padding:7px 9px!important;
+  gap:6px!important;
+  border-radius:10px!important;
+  font-size:13px!important;
+  line-height:1.2!important;
+}
+body.manage-view #utrCheckSection .utr-redesign-icon{font-size:13px!important}
+body.manage-view #utrCheckSection .utr-redesign-input{
+  width:100%!important;min-height:38px!important;height:38px!important;
+  padding:7px 10px!important;border-radius:10px!important;
+  font-size:12px!important;box-sizing:border-box!important;
+}
+body.manage-view #utrCheckSection .utr-fetch-button{
+  width:100%!important;min-height:38px!important;height:38px!important;
+  padding:7px 10px!important;border-radius:10px!important;
+  gap:6px!important;font-size:13px!important;box-sizing:border-box!important;
+}
+@media(max-width:600px){
+ body.manage-view #utrCheckSection.utr-redesign{width:calc(100% - 32px)!important;max-width:420px!important;margin:9px auto!important;padding:9px!important;gap:6px!important}
+ body.manage-view #utrCheckSection .utr-redesign-head{font-size:12px!important;padding:6px 8px!important}
+ body.manage-view #utrCheckSection .utr-redesign-input{height:36px!important;min-height:36px!important;font-size:11px!important}
+ body.manage-view #utrCheckSection .utr-fetch-button{height:36px!important;min-height:36px!important;font-size:12px!important}
+}
