@@ -1140,3 +1140,41 @@ body.manage-view #utrCheckSection .utr-fetch-button span:last-child{display:inli
 #result .success .copy-all-wrap{margin:7px 0!important}
 #result .success .copy-all-cred{min-height:30px!important;padding:6px 8px!important;font-size:11px!important}
 #result .success .id-row,#result .success .credential-row{padding:5px 7px!important;font-size:11px!important}
+
+/* V44.74 — Compact Find ID / UTR panel sizing */
+#utrCheckSection.utr-redesign{
+  width:min(100% - 36px,760px);
+  margin:18px auto;
+  padding:16px;
+  gap:10px;
+  border-radius:22px;
+}
+body.manage-view #utrCheckSection .utr-redesign-head{
+  align-self:flex-start;
+  min-height:0;
+  padding:10px 13px;
+  gap:8px;
+  border-radius:14px;
+  font-size:clamp(14px,1.8vw,18px);
+  line-height:1.25;
+}
+body.manage-view #utrCheckSection .utr-redesign-icon{font-size:17px}
+#utrCheckSection .utr-redesign-input{
+  min-height:50px;
+  padding:11px 14px;
+  border-radius:13px;
+  font-size:15px;
+}
+body.manage-view #utrCheckSection .utr-fetch-button{
+  min-height:50px;
+  padding:10px 14px;
+  border-radius:13px;
+  gap:9px;
+  font-size:17px;
+}
+@media(max-width:600px){
+  #utrCheckSection.utr-redesign{width:calc(100% - 24px);margin:14px auto;padding:12px;gap:9px;border-radius:18px}
+  body.manage-view #utrCheckSection .utr-redesign-head{padding:9px 10px;font-size:14px}
+  #utrCheckSection .utr-redesign-input{min-height:46px;padding:10px;font-size:14px}
+  body.manage-view #utrCheckSection .utr-fetch-button{min-height:46px;font-size:15px}
+}
