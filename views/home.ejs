@@ -9,13 +9,25 @@ findForm.addEventListener('submit',async e=>{
   const data=await response.json();
   if(!response.ok) throw new Error(data.error||'Lookup abhi nahi ho paaya.');
   message.textContent='Order verified. Aapki ID details neeche hain.'; message.classList.add('success');
-  credentials.hidden=false; credentials.className='find-credentials';
+  credentials.hidden=false; credentials.className='find-credentials-result';
+  const title=document.createElement('div'); title.className='find-credentials-title'; title.textContent='Verified Purchase'; credentials.append(title);
+  const terminal=document.createElement('div'); terminal.className='credentials-terminal'; credentials.append(terminal);
+  const pairs=[];
   data.credentials.forEach((item,index)=>{
-   const card=document.createElement('div');card.className='credential';
-   const title=document.createElement('strong');title.textContent='ID '+(index+1);
-   const combined=document.createElement('p');combined.textContent=String(item.username||'')+':'+String(item.password||'');
-   card.append(title,combined);credentials.append(card);
+   const pair=String(item.username||'')+(item.password?':'+String(item.password):''); pairs.push(pair);
+   const row=document.createElement('div'); row.className='idrow';
+   const line=document.createElement('div'); line.className='cred-line';
+   const code=document.createElement('code'); code.textContent=pair;
+   const copy=document.createElement('button'); copy.type='button'; copy.className='copy-cred'; copy.textContent='▣ Copy';
+   copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(pair);copy.textContent='✓ Copied';}catch{copy.textContent='Copy failed';}});
+   line.append(code,copy); row.append(line); terminal.append(row);
   });
+  const actions=document.createElement('div'); actions.className='credentials-actions';
+  const copyAll=document.createElement('button'); copyAll.type='button'; copyAll.className='copy-all-cred'; copyAll.textContent='▣ Copy All Credentials';
+  copyAll.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(pairs.join('\n'));copyAll.textContent='✓ Copied All';}catch{copyAll.textContent='Copy failed';}});
+  const download=document.createElement('button'); download.type='button'; download.className='download-credentials'; download.textContent='⇩ Download as TXT';
+  download.addEventListener('click',()=>{const url=URL.createObjectURL(new Blob([pairs.join('\n')],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='PAKHI-Credentials.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+  actions.append(copyAll,download); credentials.append(actions);
  } catch(err) { message.textContent=err.message; message.classList.add('error'); }
  finally { button.disabled=false; }
 });
