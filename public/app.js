@@ -147,25 +147,13 @@ async function submitUTR(){
     $('utrMsg').innerHTML='<div class="payment-processing"><span class="payment-spinner" aria-hidden="true"></span><div><b>Payment Processing...</b><br><small>Payment verify ho raha hai. Please wait.</small></div></div>';
     $('payStatus').innerHTML='<div class="payment-processing"><span class="payment-spinner" aria-hidden="true"></span><div><b>Payment Processing...</b><br><small>Please wait...</small></div></div>';
     resetTurnstile();
-    // After the UTR is safely recorded, take the customer directly to Find ID.
-    // The UTR is prefilled and checked repeatedly; credentials remain hidden
-    // until the server reports an approved/paid order.
-    stopPolling();
-    closePay();
-    const findInput=$('utr');
-    if(findInput) findInput.value=utr;
-    openManageSection('utrCheckSection');
-    $('result').innerHTML='<div class="pending"><b>UTR submitted successfully.</b><br>Payment verify ho raha hai. Approval ke baad ID yahin automatically dikh jayegi.</div>';
-    if(findIdPollTimer) clearInterval(findIdPollTimer);
-    const pollFindId=async()=>{
-      const status=await checkUTR();
-      if(status && status!=='pending'){
-        clearInterval(findIdPollTimer);
-        findIdPollTimer=null;
-      }
-    };
-    await pollFindId();
-    if(!findIdPollTimer) findIdPollTimer=setInterval(pollFindId,3000);
+    // Keep the customer on the payment screen while approval is pending.
+    // The Find ID panel opens only after the server confirms approved/paid.
+    $('utrBtn').disabled=true;
+    $('utrMsg').innerHTML='<div class="payment-processing"><span class="payment-spinner" aria-hidden="true"></span><div><b>UTR submitted successfully.</b><br><small>Payment approve hone ka wait karein. Approval se pehle Find ID nahi khulega.</small></div></div>';
+    $('payStatus').innerHTML='<div class="payment-processing"><span class="payment-spinner" aria-hidden="true"></span><div><b>Payment verification pending...</b><br><small>Admin approval ke baad aapko automatically Find ID par bheja jayega.</small></div></div>';
+    resetTurnstile();
+    // checkQrStatus continues polling every 3 seconds and handles the redirect.
   }catch(e){$('utrMsg').innerHTML='<div class="error">'+esc(e.message)+'</div>';$('utrBtn').disabled=false;resetTurnstile();}
 }
 async function checkQrStatus(orderId){
@@ -174,6 +162,16 @@ async function checkQrStatus(orderId){
     if(!r.ok) throw new Error(d.error||'Verification failed');
      if(d.status==='approved' || d.status==='paid'){
        stopPolling();
+       const submittedUtr=String(window.lastSubmittedUtr||'').trim();
+       if(submittedUtr){
+         $('modal').classList.add('hidden');
+         const findInput=$('utr');
+         if(findInput) findInput.value=submittedUtr;
+         openManageSection('utrCheckSection');
+         $('result').innerHTML='<div class="success"><b>✅ Payment Approved</b><br>Find ID par aapki details load ho rahi hain…</div>';
+         try { await checkUTR(); } catch(e) { console.warn('Approved Find ID lookup failed:',e); }
+         return;
+       }
        $('utrMsg').innerHTML='<div class="success"><b>✅ Payment Success</b></div>';
        let items=Array.isArray(d.items)?d.items:[];
        // Some deployments can return approval before the credential payload is
