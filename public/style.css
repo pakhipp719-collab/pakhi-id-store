@@ -1214,3 +1214,16 @@ body.manage-view #utrCheckSection .utr-fetch-button{
  body.manage-view #utrCheckSection .utr-redesign-input{height:36px!important;min-height:36px!important;font-size:11px!important}
  body.manage-view #utrCheckSection .utr-fetch-button{height:36px!important;min-height:36px!important;font-size:12px!important}
 }
+
+/* PAKHI floating WhatsApp support + larger animated brand logo */
+.brand{display:flex;align-items:center;gap:13px;min-width:0}
+.brand-mark{width:68px;height:68px;flex:0 0 68px;padding:3px;border-radius:20px;background:linear-gradient(135deg,#22d3ee,#6366f1,#34d399);box-shadow:0 7px 22px rgba(37,99,235,.28);overflow:hidden}
+.brand-mark img{display:block;width:100%;height:100%;object-fit:cover;border-radius:16px;background:#fff}
+.brand-name{display:flex;flex-direction:column;font-weight:900;font-size:clamp(23px,3vw,30px);line-height:1.05;color:#fff;letter-spacing:.2px}
+.brand-name small{font-size:11px;font-weight:700;letter-spacing:1.4px;color:#cbd5e1;margin-top:5px}
+.whatsapp-float{position:fixed;right:22px;bottom:22px;z-index:9999;display:flex;align-items:center;justify-content:center;gap:9px;min-width:64px;height:64px;padding:0 18px;border-radius:999px;background:linear-gradient(135deg,#25d366,#0aa85b);color:#fff;text-decoration:none;font-size:14px;font-weight:800;box-shadow:0 10px 28px rgba(37,211,102,.38);animation:pakhiWhatsAppFloat 2.1s ease-in-out infinite;transition:transform .2s,box-shadow .2s}
+.whatsapp-float svg{width:34px;height:34px;flex:0 0 34px}
+.whatsapp-float:hover{transform:scale(1.06);box-shadow:0 14px 34px rgba(37,211,102,.5)}
+@keyframes pakhiWhatsAppFloat{0%,100%{translate:0 0}50%{translate:0 -11px}}
+@media(max-width:600px){.brand{gap:9px}.brand-mark{width:58px;height:58px;flex-basis:58px;border-radius:17px}.brand-mark img{border-radius:14px}.brand-name{font-size:22px}.brand-name small{font-size:9px}.whatsapp-float{right:14px;bottom:16px;height:58px;min-width:58px;padding:0 15px;gap:7px}.whatsapp-float svg{width:30px;height:30px;flex-basis:30px}.whatsapp-float span{font-size:12px}}
+@media(prefers-reduced-motion:reduce){.whatsapp-float{animation:none}}
