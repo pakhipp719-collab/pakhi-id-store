@@ -53,10 +53,12 @@ main{max-width:1100px;margin:auto;padding:34px 16px 80px}
 .checkrow input,.box input{flex:1;border:1px solid #cbd5e1;border-radius:13px;padding:13px;background:#fff;outline:none}
 .checkrow input:focus,.box input:focus,.customQty:focus{border-color:#60a5fa;box-shadow:0 0 0 4px #dbeafe}
 .checkrow button{background:var(--navy);color:#fff}
-.whatsapp{position:fixed;right:20px;bottom:20px;width:62px;height:62px;border-radius:50%;background:linear-gradient(135deg,#22c55e,#16a34a,#25d366,#16a34a);background-size:240% 240%;color:#fff;display:grid;place-items:center;text-decoration:none;font-size:28px;box-shadow:0 12px 28px rgba(22,163,74,.32);z-index:8;animation:whatsappFloat 3.6s ease-in-out infinite,whatsappColor 5s ease-in-out infinite;will-change:transform,background-position}
-.whatsapp small{font-size:8px;font-weight:800;margin-top:-8px}
-@keyframes whatsappFloat{0%,100%{transform:translateY(0) translateX(0)}25%{transform:translateY(-7px) translateX(-3px)}50%{transform:translateY(0) translateX(3px)}75%{transform:translateY(7px) translateX(-2px)}}
-@keyframes whatsappColor{0%,100%{background-position:0% 50%;box-shadow:0 12px 28px rgba(22,163,74,.32)}50%{background-position:100% 50%;box-shadow:0 15px 34px rgba(37,211,102,.48)}}
+.whatsapp{position:fixed;right:22px;bottom:22px;width:70px;height:70px;border-radius:50%;background:#25d366;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;text-decoration:none;box-shadow:0 10px 28px rgba(22,163,74,.42),0 0 0 5px rgba(37,211,102,.12);z-index:9999;animation:whatsappFloat 2.2s ease-in-out infinite;will-change:transform;transition:background .2s,box-shadow .2s}
+.whatsapp:hover{background:#1ebe5d;box-shadow:0 14px 32px rgba(22,163,74,.5),0 0 0 7px rgba(37,211,102,.15)}
+.whatsapp-icon{display:block;width:35px;height:35px}
+.whatsapp-label{font-size:10px;line-height:1;font-weight:800;letter-spacing:.1px}
+@keyframes whatsappFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-11px)}}
+@media(prefers-reduced-motion:reduce){.whatsapp{animation:none}}
 
 .modal{position:fixed;inset:0;background:rgba(2,6,23,.68);backdrop-filter:blur(4px);display:grid;place-items:center;padding:15px;z-index:20}
 .box{background:#fff;border-radius:22px;padding:25px;width:min(500px,100%);position:relative;box-shadow:0 30px 80px rgba(2,6,23,.35)}
@@ -71,7 +73,7 @@ main{max-width:1100px;margin:auto;padding:34px 16px 80px}
 code{font-size:15px}
 .site-footer{text-align:center;color:#94a3b8;font-size:12px;padding:0 16px 35px}
 @media(max-width:700px){.hero-title{align-items:flex-start;flex-direction:column}.trust-pill{white-space:normal}.header-badge{display:none}}
-@media(max-width:600px){main{max-width:620px;padding:18px 11px 55px}.check{flex-direction:column}.checkrow{flex-direction:column}.site-header{padding:10px 12px}.brand-wrap{gap:9px}.logo-ring{width:46px;height:46px;border-radius:14px}.logo{border-radius:11px}h1{font-size:19px}.site-header p{font-size:11px;margin-top:2px}.hero-title{margin-bottom:14px}.hero-title h2{font-size:22px;margin:10px 0 4px}.hero-title p{font-size:12px}.eyebrow{font-size:9px;padding:6px 8px}.trust-pill{font-size:10px;padding:9px 11px}.grid{grid-template-columns:1fr 1fr;gap:10px}.card{padding:14px;border-radius:15px}.qty{font-size:20px}.price{font-size:19px;margin:6px 0 10px}.buy,.primary{padding:10px 9px;font-size:12px;border-radius:11px}.custom-card{grid-column:1/-1}.customQty{padding:10px;font-size:16px}.news-bar{font-size:12px;padding:9px 11px}.check{padding:15px;margin-top:20px}.whatsapp{width:52px;height:52px;right:12px;bottom:12px}.box{padding:20px;border-radius:18px}}
+@media(max-width:600px){main{max-width:620px;padding:18px 11px 55px}.check{flex-direction:column}.checkrow{flex-direction:column}.site-header{padding:10px 12px}.brand-wrap{gap:9px}.logo-ring{width:46px;height:46px;border-radius:14px}.logo{border-radius:11px}h1{font-size:19px}.site-header p{font-size:11px;margin-top:2px}.hero-title{margin-bottom:14px}.hero-title h2{font-size:22px;margin:10px 0 4px}.hero-title p{font-size:12px}.eyebrow{font-size:9px;padding:6px 8px}.trust-pill{font-size:10px;padding:9px 11px}.grid{grid-template-columns:1fr 1fr;gap:10px}.card{padding:14px;border-radius:15px}.qty{font-size:20px}.price{font-size:19px;margin:6px 0 10px}.buy,.primary{padding:10px 9px;font-size:12px;border-radius:11px}.custom-card{grid-column:1/-1}.customQty{padding:10px;font-size:16px}.news-bar{font-size:12px;padding:9px 11px}.check{padding:15px;margin-top:20px}.whatsapp{width:60px;height:60px;right:12px;bottom:12px}.whatsapp-icon{width:31px;height:31px}.whatsapp-label{font-size:9px}.box{padding:20px;border-radius:18px}}
 
 .qr-box{width:min(520px,94vw);background:#fff;border-radius:22px;box-shadow:0 24px 70px rgba(0,0,0,.32);padding:0;overflow:hidden;position:relative}
 .qr-head{padding:24px 26px 18px;text-align:center;background:linear-gradient(135deg,#f4f7ff,#eef3ff);border-bottom:1px solid #e4e9f5}
@@ -452,7 +454,7 @@ body:after{width:360px;height:360px;right:-150px;bottom:5%;background:radial-gra
   .custom-card{grid-column:1/-1!important}.custom-help{font-size:10px!important;line-height:1.25;margin:4px 0 6px!important}
   .custom-row{grid-template-columns:1fr auto;gap:7px}.customQty{padding:8px 9px!important;font-size:15px!important;border-radius:9px!important;margin:0!important;min-width:0}.custom-row .price{font-size:16px!important;min-width:68px}
   .check{padding:11px!important;margin-top:14px!important;border-radius:14px!important;gap:9px}.section-icon{width:34px;height:34px;border-radius:10px}.check p{font-size:10px;margin:0 0 7px}.checkrow{gap:7px!important}.checkrow input{padding:9px!important;border-radius:9px}.checkrow button{padding:9px 11px!important}
-  .whatsapp{width:46px!important;height:46px!important;right:9px!important;bottom:9px!important}.site-footer{font-size:9px!important;padding-bottom:20px!important}
+  .whatsapp{width:58px!important;height:58px!important;right:10px!important;bottom:10px!important}.whatsapp-icon{width:30px!important;height:30px!important}.whatsapp-label{font-size:9px!important}.site-footer{font-size:9px!important;padding-bottom:20px!important}
 }
 
 .claim-box{margin-top:18px;padding:16px;border-radius:16px;border:1px solid rgba(20,184,166,.35);background:rgba(20,184,166,.08)}
@@ -1214,16 +1216,3 @@ body.manage-view #utrCheckSection .utr-fetch-button{
  body.manage-view #utrCheckSection .utr-redesign-input{height:36px!important;min-height:36px!important;font-size:11px!important}
  body.manage-view #utrCheckSection .utr-fetch-button{height:36px!important;min-height:36px!important;font-size:12px!important}
 }
-
-/* PAKHI floating WhatsApp support + larger animated brand logo */
-.brand{display:flex;align-items:center;gap:13px;min-width:0}
-.brand-mark{width:68px;height:68px;flex:0 0 68px;padding:3px;border-radius:20px;background:linear-gradient(135deg,#22d3ee,#6366f1,#34d399);box-shadow:0 7px 22px rgba(37,99,235,.28);overflow:hidden}
-.brand-mark img{display:block;width:100%;height:100%;object-fit:cover;border-radius:16px;background:#fff}
-.brand-name{display:flex;flex-direction:column;font-weight:900;font-size:clamp(23px,3vw,30px);line-height:1.05;color:#fff;letter-spacing:.2px}
-.brand-name small{font-size:11px;font-weight:700;letter-spacing:1.4px;color:#cbd5e1;margin-top:5px}
-.whatsapp-float{position:fixed;right:22px;bottom:22px;z-index:9999;display:flex;align-items:center;justify-content:center;gap:9px;min-width:64px;height:64px;padding:0 18px;border-radius:999px;background:linear-gradient(135deg,#25d366,#0aa85b);color:#fff;text-decoration:none;font-size:14px;font-weight:800;box-shadow:0 10px 28px rgba(37,211,102,.38);animation:pakhiWhatsAppFloat 2.1s ease-in-out infinite;transition:transform .2s,box-shadow .2s}
-.whatsapp-float svg{width:34px;height:34px;flex:0 0 34px}
-.whatsapp-float:hover{transform:scale(1.06);box-shadow:0 14px 34px rgba(37,211,102,.5)}
-@keyframes pakhiWhatsAppFloat{0%,100%{translate:0 0}50%{translate:0 -11px}}
-@media(max-width:600px){.brand{gap:9px}.brand-mark{width:58px;height:58px;flex-basis:58px;border-radius:17px}.brand-mark img{border-radius:14px}.brand-name{font-size:22px}.brand-name small{font-size:9px}.whatsapp-float{right:14px;bottom:16px;height:58px;min-width:58px;padding:0 15px;gap:7px}.whatsapp-float svg{width:30px;height:30px;flex-basis:30px}.whatsapp-float span{font-size:12px}}
-@media(prefers-reduced-motion:reduce){.whatsapp-float{animation:none}}
