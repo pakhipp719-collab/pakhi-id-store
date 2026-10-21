@@ -147,25 +147,9 @@ async function submitUTR(){
     $('utrMsg').innerHTML='<div class="payment-processing"><span class="payment-spinner" aria-hidden="true"></span><div><b>Payment Processing...</b><br><small>Payment verify ho raha hai. Please wait.</small></div></div>';
     $('payStatus').innerHTML='<div class="payment-processing"><span class="payment-spinner" aria-hidden="true"></span><div><b>Payment Processing...</b><br><small>Please wait...</small></div></div>';
     resetTurnstile();
-    // After the UTR is safely recorded, take the customer directly to Find ID.
-    // The UTR is prefilled and checked repeatedly; credentials remain hidden
-    // until the server reports an approved/paid order.
-    stopPolling();
-    closePay();
-    const findInput=$('utr');
-    if(findInput) findInput.value=utr;
-    openManageSection('utrCheckSection');
-    $('result').innerHTML='<div class="pending"><b>UTR submitted successfully.</b><br>Payment verify ho raha hai. Approval ke baad ID yahin automatically dikh jayegi.</div>';
-    if(findIdPollTimer) clearInterval(findIdPollTimer);
-    const pollFindId=async()=>{
-      const status=await checkUTR();
-      if(status && status!=='pending'){
-        clearInterval(findIdPollTimer);
-        findIdPollTimer=null;
-      }
-    };
-    await pollFindId();
-    if(!findIdPollTimer) findIdPollTimer=setInterval(pollFindId,3000);
+    // Keep payment status polling active. On confirmed approval,
+    // checkQrStatus redirects to Find ID and pre-fills this submitted UTR.
+    await checkQrStatus(orderId);
   }catch(e){$('utrMsg').innerHTML='<div class="error">'+esc(e.message)+'</div>';$('utrBtn').disabled=false;resetTurnstile();}
 }
 async function checkQrStatus(orderId){
@@ -174,19 +158,16 @@ async function checkQrStatus(orderId){
     if(!r.ok) throw new Error(d.error||'Verification failed');
      if(d.status==='approved' || d.status==='paid'){
        stopPolling();
-       $('utrMsg').innerHTML='<div class="success"><b>✅ Payment Success</b></div>';
-       let items=Array.isArray(d.items)?d.items:[];
-       // Some deployments can return approval before the credential payload is
-       // attached. Fetch the approved order once more by the submitted UTR so
-       // the released ID/password is always rendered below Payment Success.
-       if(!items.length && window.lastSubmittedUtr){
-         try{
-           const rr=await fetch('/api/order-check/'+encodeURIComponent(window.lastSubmittedUtr),{cache:'no-store'});
-           const rd=await rr.json();
-           if(Array.isArray(rd.items)) items=rd.items;
-         }catch(e){console.warn('Credential fallback fetch:',e);}
+       const approvedUtr=String(window.lastSubmittedUtr||'').trim();
+       closePay();
+       openManageSection('utrCheckSection');
+       if(approvedUtr){
+         $('utr').value=approvedUtr;
+         $('result').innerHTML='<div class="success"><b>✅ Payment Approved</b><br>आपकी ID लोड हो रही है…</div>';
+         await checkUTR();
+       }else{
+         $('result').innerHTML='<div class="success"><b>✅ Payment Approved</b><br>अपना UTR डालकर Fetch IDs दबाएँ।</div>';
        }
-       showIDs(items,d.order);
        return;
      }
      if(d.status==='pending_approval'){ $('payStatus').innerHTML='<div class="payment-processing"><span class="payment-spinner" aria-hidden="true"></span><div><b>Payment Processing...</b><br><small>Please wait...</small></div></div>'; $('utrMsg').innerHTML='<div class="payment-processing"><span class="payment-spinner" aria-hidden="true"></span><div><b>Payment Processing...</b><br><small>Payment verify ho raha hai. Please wait.</small></div></div>'; return; }

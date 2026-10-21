@@ -1106,19 +1106,3 @@ body.manage-view #utrCheckSection .utr-fetch-button span:last-child{display:inli
   #bonusClaimSection .bonus-redesign-input { min-height: 50px !important; }
   .utr-fetch-button,.bonus-claim-button { min-height: 52px !important; }
 }
-
-/* PAKHI Find ID verified-purchase credentials panel, matching NISHAD reference */
-.find-credentials-result{display:block!important;padding:16px!important;margin-top:14px!important;border:1px solid rgba(45,111,177,.42)!important;border-radius:18px!important;background:linear-gradient(145deg,#08142e 0%,#0b1734 58%,#101b3b 100%)!important;color:#f3f7ff!important;box-shadow:0 12px 28px rgba(2,8,25,.24)!important}
-.find-credentials-title{display:flex!important;align-items:center;gap:9px;margin:0 0 12px!important;color:#f5f7ff!important;font-size:15px!important;font-weight:800!important}
-.find-credentials-title:before{content:'✓';display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#08bd98;color:#041b2c;font-weight:900}
-.credentials-terminal{display:block!important;padding:10px 13px!important;border:1px solid #087c70!important;border-radius:15px!important;background:linear-gradient(135deg,#050d20,#07132a)!important;color:#e9f2ff!important}
-.credentials-terminal .idrow{display:block!important;border:0!important;border-bottom:1px solid rgba(89,124,177,.2)!important;padding:8px 0!important;margin:0!important;background:transparent!important}
-.credentials-terminal .idrow:last-child{border-bottom:0!important}
-.credentials-terminal .cred-line{display:flex!important;flex-wrap:wrap;align-items:center;gap:7px;margin:0!important;padding:3px 0!important;min-height:27px}
-.credentials-terminal code{color:#35e0bd!important;background:transparent!important;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px!important;overflow-wrap:anywhere}
-.credentials-terminal .copy-cred{margin-left:auto!important;min-height:28px!important;padding:4px 8px!important;border:1px solid rgba(120,157,220,.2)!important;border-radius:9px!important;background:#15284b!important;color:#f2f6ff!important;font-size:11px!important;font-weight:700!important}
-.credentials-actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:9px!important;margin-top:10px!important}
-.credentials-actions button{display:flex!important;align-items:center!important;justify-content:center!important;min-height:40px!important;padding:9px 10px!important;border-radius:12px!important;font-size:12px!important;font-weight:800!important;color:#fff!important;cursor:pointer}
-.credentials-actions .copy-all-cred{background:linear-gradient(135deg,#19345f,#244d83)!important;border:1px solid #3b9aff!important}
-.credentials-actions .download-credentials{background:linear-gradient(135deg,#00b98c,#008d79)!important;border:1px solid #12e2b5!important}
-@media(max-width:520px){.find-credentials-result{padding:12px!important}.credentials-terminal{padding:8px 10px!important}.credentials-actions{gap:7px!important}.credentials-actions button{font-size:11px!important;padding:8px 6px!important}}
