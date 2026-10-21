@@ -252,6 +252,16 @@ async function checkUTR(){
     return 'error';
   }
 }
+function downloadFindCredentials(button){
+  try{
+    const encoded=button.getAttribute('data-credentials')||'';
+    const text=decodeURIComponent(escape(atob(encoded)));
+    const blob=new Blob([text],{type:'text/plain;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download='pakhi-credentials.txt';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  }catch(e){console.error('Credential download failed',e);}
+}
+
 function showCheck(items,order){
   if(order.status==='rejected'){
     $('result').innerHTML='<div class="error">Your UTR / Transaction ID was rejected.</div>';
@@ -261,8 +271,11 @@ function showCheck(items,order){
     $('result').innerHTML='<div class="pending"><b>Payment Pending Approval</b><br>Payment record mil gaya hai, lekin verification abhi pending hai. Approval hote hi ID yahin dikh jayegi.<br>Order: <code>'+esc(order.order_id)+'</code></div>';
     return 'pending';
   }
-  const rows=credentialRows(items,'ID ');
-  $('result').innerHTML='<div class="success"><b>Verified Purchase</b><br>Order: <code>'+esc(order.order_id)+'</code><div class="copy-all-wrap">'+copyAllButton(items,'📋 Copy All IDs & Passwords')+'</div>'+rows+'</div>';
+  const list=Array.isArray(items)?items:[];
+  const rows=credentialRows(list,'ID ');
+  const downloadPayload=list.map((x,i)=>'ID '+(i+1)+': '+String(x.login_id??'')+(x.login_password?':'+String(x.login_password):'')+(x.extra_data?'\n'+String(x.extra_data):'')).join('\n\n');
+  const encodedDownload=btoa(unescape(encodeURIComponent(downloadPayload)));
+  $('result').innerHTML='<div class="find-credentials-result"><div class="find-credentials-title">Verified Purchase</div><div class="credentials-terminal">'+rows+'</div><div class="credentials-actions">'+copyAllButton(list,'▣ Copy All Credentials')+'<button type="button" class="download-credentials" data-credentials="'+encodedDownload+'" onclick="downloadFindCredentials(this)">⇩ Download as TXT</button></div></div>';
   return 'approved';
 }
 
